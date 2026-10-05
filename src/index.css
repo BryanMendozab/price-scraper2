@@ -1,0 +1,132 @@
+@import "tailwindcss";
+
+/* Paleta apagada: jerarquia por fondo, no por bordes. Pocos colores a proposito.
+   --color-brand  acero      informacion / acento
+   --color-up     ladrillo  el precio subio (malo)
+   --color-down   salvia    el precio bajo (bueno)
+   --color-warn   ocre      atencion */
+@theme {
+  --color-canvas: #0a0a0b;
+  --color-surface: #121215;
+  --color-raised: #191a1e;
+  --color-line: #24252a;
+  --color-line-soft: #1b1c20;
+  --color-muted: #74747c;
+  --color-dim: #4d4d55;
+  --color-ink: #d2d2d7;
+  --color-brand: #7b90a5;
+  --color-up: #ab7070;
+  --color-down: #6d917c;
+  --color-warn: #9c8858;
+
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-canvas text-ink antialiased;
+    font-family: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2a2b30;
+    border-radius: 999px;
+    border: 2px solid var(--color-canvas);
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #3a3b42;
+  }
+
+  /* El rojo de los <input type=range> por defecto desentona con la paleta. */
+  input[type="range"] {
+    accent-color: var(--color-brand);
+  }
+  input[type="range"]::-webkit-slider-runnable-track {
+    background: var(--color-raised);
+  }
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button {
+    opacity: 0.25;
+  }
+}
+
+@layer components {
+  /* Los contenedores se separan por tono de fondo, nunca por borde. */
+  .panel {
+    @apply rounded-lg bg-surface;
+  }
+  .panel-head {
+    @apply flex items-center justify-between gap-3 border-b border-line-soft px-4 py-3;
+  }
+  .panel-title {
+    @apply text-[13px] font-medium tracking-wide text-ink;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-md bg-raised px-3 py-2
+      text-[13px] font-medium text-muted transition-colors
+      hover:bg-line hover:text-ink
+      disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:bg-raised disabled:hover:text-muted;
+  }
+  .btn-primary {
+    @apply bg-brand/15 text-brand hover:bg-brand/25 hover:text-brand;
+  }
+  .btn-danger {
+    @apply bg-up/15 text-up hover:bg-up/25 hover:text-up;
+  }
+  .btn-xs {
+    @apply px-2 py-1 text-[11px];
+  }
+
+  .input {
+    @apply w-full rounded-md bg-canvas px-3 py-2 text-[13px] text-ink outline-none
+      transition-colors placeholder:text-dim focus:ring-1 focus:ring-brand/40;
+  }
+  .label {
+    @apply mb-1.5 block text-[11px] font-medium uppercase tracking-wider text-dim;
+  }
+
+  /* Etiquetas informativas: fondo sutil, sin borde. */
+  .chip {
+    @apply inline-flex items-center gap-1 rounded bg-raised px-2 py-0.5 text-[11px]
+      font-medium text-muted;
+  }
+
+  .th {
+    @apply px-4 py-2.5 text-left text-[11px] font-medium uppercase tracking-wider text-dim;
+  }
+  .td {
+    @apply px-4 py-2.5 text-[13px] text-ink;
+  }
+}
+
+/* Punto de estado: sin halo, solo un punto tenue. */
+@keyframes soft-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.pulse-dot {
+  animation: soft-pulse 2.4s ease-in-out infinite;
+}
