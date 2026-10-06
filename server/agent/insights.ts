@@ -50,8 +50,7 @@ export function buildInsights({
     )} productos en total.`,
   );
 
-  // La comparación entre tiendas solo tiene sentido si comparten moneda:
-  // comparar libras contra pesos no dice nada.
+  // Fase 1 solo-cripto: una sola fuente; el promedio es en USD.
   const comparable = active.filter(
     (s) => s.avgPrice !== null && s.currency === stats.avgCurrency,
   );
@@ -60,7 +59,7 @@ export function buildInsights({
 
   if (stats.avgPrice !== null) {
     lines.push(
-      `El precio promedio del mercado es ${money(stats.avgPrice, stats.avgCurrency)} (solo tiendas en ${stats.avgCurrency}).`,
+      `El precio promedio del Top cripto es ${money(stats.avgPrice, stats.avgCurrency)} (promedio en USD, sin mezclar MXN).`,
     );
   }
   if (cheapest && dearest && cheapest.id !== dearest.id) {
@@ -131,7 +130,7 @@ export function buildInsights({
   const crypto = active.find((s) => s.id === 'mercado');
   if (crypto && crypto.events24h > 0) {
     lines.push(
-      'La cotización cripto aporta la variación en vivo de la demo: cambia en cada corrida.',
+      'El mercado cripto aporta variación en vivo: BTC, ETH y otras 8 monedas en USD + MXN cambian en cada corrida.',
     );
   }
 

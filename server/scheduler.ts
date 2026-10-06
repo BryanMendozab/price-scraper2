@@ -3,6 +3,8 @@ import { runCycle, type CycleResult } from './agent/index.ts';
 import { getDb } from './store.ts';
 import { buildReport } from './report/build.ts';
 import { dispatchReport } from './report/send.ts';
+import { buildRecommendations } from './profiles/recommend.ts';
+import { actionable, emailReady, sendProfileAlert } from './notify/email.ts';
 
 const MIN_INTERVAL_SECONDS = 5;
 
@@ -72,11 +74,45 @@ async function maybeNotify(result: CycleResult, trigger: RunTrigger): Promise<vo
   }
 }
 
+/** Antispam: último envío por perfil (en memoria, se reinicia con el servidor). */
+const lastProfileAlert = new Map<string, number>();
+
+/**
+ * Alertas por email (Fase 3): por cada perfil con alertas activas se calculan
+ * sus recomendaciones y, solo si hay veredictos accionables y pasó el
+ * cooldown, se envía un correo. Nunca se envía por perfiles en calma.
+ */
+async function maybeNotifyProfiles(): Promise<void> {
+  const { notify } = getDb().settings;
+  const { profiles } = getDb();
+  if (!notify.email.enabled) return;
+  if (!emailReady()) {
+    console.warn('[notify] alertas por email activadas pero SMTP sin configurar: se omiten.');
+    return;
+  }
+  const cooldownMs = Math.max(0, notify.email.cooldownMinutes) * 60_000;
+  for (const profile of profiles) {
+    if (!profile.alertsEnabled) continue;
+    const { recommendations } = buildRecommendations(profile);
+    if (actionable(recommendations).length === 0) continue;
+    const last = lastProfileAlert.get(profile.id) ?? 0;
+    if (Date.now() - last < cooldownMs) continue;
+    const result = await sendProfileAlert(profile, recommendations);
+    if (result.sent) {
+      lastProfileAlert.set(profile.id, Date.now());
+      console.log(`[notify] alerta email enviada a ${profile.email} (${profile.name}).`);
+    } else if (result.error) {
+      console.warn(`[notify] email a ${profile.email} falló: ${result.error}`);
+    }
+  }
+}
+
 async function tick(): Promise<void> {
   const result = await runNow('schedule');
   if ('skipped' in result) return;
   nextRunAt = new Date(Date.now() + getDb().settings.intervalSeconds * 1000).toISOString();
   await maybeNotify(result, 'schedule');
+  await maybeNotifyProfiles();
 }
 
 /** (Re)arma el temporizador con el intervalo configurado. */

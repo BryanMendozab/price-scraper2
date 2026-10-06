@@ -3,7 +3,7 @@
  * El agente, la persistencia y la UI hablan el mismo idioma.
  */
 
-export type StoreId = 'anglo' | 'mercado' | 'omie';
+export type StoreId = 'mercado';
 
 export type Availability = 'in_stock' | 'out_of_stock' | 'unknown';
 
@@ -89,6 +89,20 @@ export interface Thresholds {
   highPct: number;
 }
 
+export interface EmailSettings {
+  /** Interruptor maestro de las alertas por email (Fase 3). */
+  enabled: boolean;
+  smtpHost: string;
+  smtpPort: number;
+  /** true = TLS directo (465); false = STARTTLS (587). */
+  smtpSecure: boolean;
+  smtpUser: string;
+  smtpPass: string;
+  from: string;
+  /** Minutos mínimos entre dos emails al mismo perfil (antispam). */
+  cooldownMinutes: number;
+}
+
 export interface NotifySettings {
   provider: NotifyProvider;
   slackWebhook: string;
@@ -100,6 +114,7 @@ export interface NotifySettings {
   /** Hora local del reporte automatico diario (0-23). */
   dailyReportHour: number;
   dailyReportMinute: number;
+  email: EmailSettings;
 }
 
 export interface Settings {
@@ -172,6 +187,47 @@ export interface Db {
   reports: Report[];
   runs: RunRecord[];
   sourceStatus: Partial<Record<StoreId, SourceStatus>>;
+  profiles: UserProfile[];
+}
+
+/* ------------------------------- Perfiles ------------------------------- */
+
+/** Horizonte del usuario: opera todos los días o una vez al mes. */
+export type UserHorizon = 'daily' | 'monthly';
+
+export type ProfileCurrency = 'USD' | 'MXN';
+
+/** Perfil de usuario: qué monedas mira y con qué horizonte. Sin auth (proyecto escolar). */
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  horizon: UserHorizon;
+  /** Ids de CoinGecko (ej. 'bitcoin'). Vacío = todas. */
+  coins: string[];
+  currency: ProfileCurrency;
+  /** Si es false, el scheduler salta este perfil (Fase 3). */
+  alertsEnabled: boolean;
+  createdAt: string;
+}
+
+export type RecommendationVerdict = 'calma' | 'atencion' | 'oportunidad' | 'riesgo';
+
+/** Recomendación educativa por moneda y perfil. No es asesoría financiera. */
+export interface Recommendation {
+  profileId: string;
+  coinId: string;
+  symbol: string;
+  title: string;
+  currency: ProfileCurrency;
+  price: number | null;
+  prevPrice: number | null;
+  changeRunPct: number | null;
+  change24hPct: number | null;
+  verdict: RecommendationVerdict;
+  headline: string;
+  explanation: string;
+  suggestion: string;
 }
 
 /* ---------------------------------- API ---------------------------------- */

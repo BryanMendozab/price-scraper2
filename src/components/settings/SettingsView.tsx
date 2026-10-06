@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
-import { Check, Loader2, Save, Trash2, TriangleAlert } from 'lucide-react';
+import { Check, Loader2, Mail, Save, Trash2, TriangleAlert } from 'lucide-react';
 import type { NotifyProvider, Settings } from '../../../shared/types';
 import { api } from '../../lib/api';
 import { Panel, Spinner, Toggle } from '../ui';
@@ -19,6 +19,9 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [testTo, setTestTo] = useState('');
+  const [testResult, setTestResult] = useState<string | null>(null);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     void api
@@ -40,6 +43,21 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
     patch({ notify: { ...settings.notify, ...next } });
   const patchThresholds = (next: Partial<Settings['thresholds']>) =>
     patch({ thresholds: { ...settings.thresholds, ...next } });
+  const patchEmail = (next: Partial<Settings['notify']['email']>) =>
+    patch({ notify: { ...settings.notify, email: { ...settings.notify.email, ...next } } });
+
+  const sendTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const data = await api.emailTest(testTo);
+      setTestResult(data.detail || 'Enviado.');
+    } catch (err) {
+      setTestResult(err instanceof Error ? err.message : 'Falló el envío.');
+    } finally {
+      setTesting(false);
+    }
+  };
 
   const save = async () => {
     setSaving(true);
@@ -249,6 +267,110 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+        </Panel>
+
+        <Panel title="Alertas por email" subtitle="Un correo por perfil cuando haya movimientos accionables">
+          <div className="space-y-4">
+            <Toggle
+              checked={settings.notify.email.enabled}
+              onChange={(value) => patchEmail({ enabled: value })}
+              label="Alertas por email activas"
+              description="El scheduler revisa cada corrida: solo envía si el perfil tiene veredictos distintos de calma y pasó el cooldown."
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2">
+                <label className="label" htmlFor="smtp-host">Servidor SMTP</label>
+                <input
+                  id="smtp-host"
+                  className="input font-mono text-[11px]"
+                  placeholder="smtp.gmail.com"
+                  value={settings.notify.email.smtpHost}
+                  onChange={(e) => patchEmail({ smtpHost: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="smtp-port">Puerto</label>
+                <input
+                  id="smtp-port"
+                  type="number"
+                  className="input"
+                  value={settings.notify.email.smtpPort}
+                  onChange={(e) => patchEmail({ smtpPort: Number(e.target.value) })}
+                />
+              </div>
+              <div>
+                <label className="label" htmlFor="smtp-cooldown">Cooldown (min)</label>
+                <input
+                  id="smtp-cooldown"
+                  type="number"
+                  min={0}
+                  className="input"
+                  value={settings.notify.email.cooldownMinutes}
+                  onChange={(e) => patchEmail({ cooldownMinutes: Number(e.target.value) })}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="label" htmlFor="smtp-user">Usuario SMTP</label>
+                <input
+                  id="smtp-user"
+                  className="input font-mono text-[11px]"
+                  placeholder="tu-cuenta@gmail.com"
+                  value={settings.notify.email.smtpUser}
+                  onChange={(e) => patchEmail({ smtpUser: e.target.value })}
+                />
+              </div>
+              <div className="col-span-2">
+                <label className="label" htmlFor="smtp-pass">Contraseña / App Password</label>
+                <input
+                  id="smtp-pass"
+                  type="password"
+                  className="input font-mono text-[11px]"
+                  placeholder="••••••••"
+                  value={settings.notify.email.smtpPass}
+                  onChange={(e) => patchEmail({ smtpPass: e.target.value })}
+                />
+                <p className="mt-1 text-[10px] text-dim">
+                  Gmail exige App Password (Cuenta → Seguridad → Verificación en 2 pasos).
+                  También sale de .env con SMTP_*.
+                </p>
+              </div>
+              <div className="col-span-2">
+                <label className="label" htmlFor="smtp-from">Remitente</label>
+                <input
+                  id="smtp-from"
+                  className="input font-mono text-[11px]"
+                  placeholder="Agente Cripto <tu-cuenta@gmail.com>"
+                  value={settings.notify.email.from}
+                  onChange={(e) => patchEmail({ from: e.target.value })}
+                />
+              </div>
+            </div>
+            <Toggle
+              checked={settings.notify.email.smtpSecure}
+              onChange={(value) => patchEmail({ smtpSecure: value })}
+              label="TLS directo (puerto 465)"
+              description="Apagado = STARTTLS (puerto 587, lo común)."
+            />
+            <div className="border-t border-line-soft pt-3">
+              <label className="label" htmlFor="smtp-test">Probar envío (usa SMTP real)</label>
+              <div className="flex gap-2">
+                <input
+                  id="smtp-test"
+                  className="input flex-1"
+                  placeholder="destino@mail.com"
+                  value={testTo}
+                  onChange={(e) => setTestTo(e.target.value)}
+                />
+                <button className="btn btn-xs" onClick={() => void sendTest()} disabled={testing || !testTo}>
+                  <Mail size={12} /> {testing ? 'Enviando…' : 'Enviar prueba'}
+                </button>
+              </div>
+              {testResult && <p className="mt-2 text-[11px] text-muted">{testResult}</p>}
+              <p className="mt-1 text-[10px] text-dim">
+                Guarda primero la configuración con “Guardar configuración”.
+              </p>
             </div>
           </div>
         </Panel>

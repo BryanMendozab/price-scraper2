@@ -1,12 +1,11 @@
-import { BellRing, Boxes, DollarSign, Radar, Store as StoreIcon } from 'lucide-react';
+import { BellRing, DollarSign, Radar, Store as StoreIcon } from 'lucide-react';
 import type { DashboardData } from '../../../shared/types';
 import { money, num, timeAgo } from '../../lib/format';
-import { Chip, EmptyState, ErrorNote, EventRow, Panel, Spinner } from '../ui';
+import { EmptyState, ErrorNote, EventRow, Panel, Spinner } from '../ui';
 import { KpiCard } from './KpiCard';
 import { TrendChart } from './TrendChart';
 import { TopMovers } from './TopMovers';
 import { CrawlerStatus } from './CrawlerStatus';
-import { EventKinds, StoreTable } from './StoreTable';
 
 export function OverviewView({
   data,
@@ -59,7 +58,7 @@ export function OverviewView({
         <KpiCard
           label={`Precio medio (${kpis.avgCurrency})`}
           value={money(kpis.avgPrice, kpis.avgCurrency)}
-          sub="Librería Anglo"
+          sub="Top cripto USD"
           icon={DollarSign}
           tone="muted"
         />

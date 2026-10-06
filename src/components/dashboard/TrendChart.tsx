@@ -12,9 +12,7 @@ import { money, num, timeShort } from '../../lib/format';
 import { EmptyState, Panel } from '../ui';
 
 const STORE_COLOR: Record<string, string> = {
-  anglo: 'var(--color-down)',
   mercado: 'var(--color-warn)',
-  omie: 'var(--color-brand)',
 };
 
 interface TooltipEntry {
@@ -59,9 +57,9 @@ function ChartTooltip({
 }
 
 /**
- * Tendencia del precio promedio por tienda.
- * La fuente cripto queda fuera del eje porque esta en pesos: mezclarla con
- * dolares aplastaria la escala y el grafico no diria nada.
+ * Tendencia del precio promedio cripto en USD.
+ * Los productos en MXN se monitorean y alertan igual, pero no se grafican
+ * para no mezclar monedas en el mismo eje.
  */
 export function TrendChart({
   trend,
@@ -70,7 +68,7 @@ export function TrendChart({
   trend: TrendPoint[];
   stores: StoreSummary[];
 }) {
-  const plottable = stores.filter((s) => s.currency === 'GBP' || s.currency === 'EUR');
+  const plottable = stores.filter((s) => s.products > 0);
 
   return (
     <Panel

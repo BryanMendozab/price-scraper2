@@ -4,12 +4,14 @@ import type {
   NotifyProvider,
   PriceEvent,
   Product,
+  Recommendation,
   Report,
   RunRecord,
   Settings,
   StoreId,
   StoreSummary,
   SourceMeta,
+  UserProfile,
 } from '../../shared/types';
 
 export class ApiError extends Error {
@@ -114,4 +116,47 @@ export const api = {
     request<{ settings: Settings }>('/settings', { method: 'PUT', body: JSON.stringify(patch) }),
 
   clearData: () => request<{ ok: boolean }>('/data/clear', { method: 'POST' }),
+
+  coins: () => request<{ coins: Array<{ id: string; symbol: string; name: string }> }>('/coins'),
+
+  profiles: () => request<{ profiles: UserProfile[] }>('/profiles'),
+
+  createProfile: (body: { name: string; email: string; horizon: string; coins: string[]; currency: string; alertsEnabled?: boolean }) =>
+    request<{ profile: UserProfile }>('/profiles', { method: 'POST', body: JSON.stringify(body) }),
+
+  updateProfile: (id: string, body: { name: string; email: string; horizon: string; coins: string[]; currency: string; alertsEnabled?: boolean }) =>
+    request<{ profile: UserProfile }>(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
+
+  deleteProfile: (id: string) => request<{ ok: boolean }>(`/profiles/${id}`, { method: 'DELETE' }),
+
+  toggleProfileAlerts: (id: string, enabled: boolean) =>
+    request<{ profile: UserProfile }>(`/profiles/${id}/alerts`, {
+      method: 'PATCH',
+      body: JSON.stringify({ enabled }),
+    }),
+
+  recommendations: (id: string) =>
+    request<{ recommendations: Recommendation[]; disclaimer: string; generatedAt: string }>(
+      `/profiles/${id}/recommendations`,
+    ),
+
+  emailStatus: () =>
+    request<{ enabled: boolean; ready: boolean; host: string; port: number; user: string; from: string }>(
+      '/notify/email/status',
+    ),
+
+  emailPreview: (profileId: string) =>
+    request<{
+      profileId: string;
+      to: string;
+      actionable: number;
+      total: number;
+      email: { subject: string; text: string; html: string };
+    }>(`/notify/email/preview/${profileId}`),
+
+  emailTest: (to: string) =>
+    request<{ ok: boolean; error: string | null; detail: string }>('/notify/email/test', {
+      method: 'POST',
+      body: JSON.stringify({ to }),
+    }),
 };

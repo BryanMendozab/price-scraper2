@@ -19,6 +19,12 @@ export const config = {
     | 'teams',
   slackWebhook: process.env.SLACK_WEBHOOK_URL?.trim() || '',
   teamsWebhook: process.env.TEAMS_WEBHOOK_URL?.trim() || '',
+  smtpHost: process.env.SMTP_HOST?.trim() || '',
+  smtpPort: num('SMTP_PORT', 587),
+  smtpSecure: (process.env.SMTP_SECURE?.trim() || 'false').toLowerCase() === 'true',
+  smtpUser: process.env.SMTP_USER?.trim() || '',
+  smtpPass: process.env.SMTP_PASS?.trim() || '',
+  smtpFrom: process.env.SMTP_FROM?.trim() || '',
   /** Milisegundos maximos por request HTTP antes de abortar. */
   requestTimeoutMs: 15_000,
   /** Espera entre paginas del mismo sitio: scrapeamos coneducacion. */

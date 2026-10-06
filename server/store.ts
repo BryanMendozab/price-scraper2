@@ -1,7 +1,8 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Db, Settings } from '../shared/types.ts';
+import type { Db, Settings, UserProfile } from '../shared/types.ts';
+import { isKnownCoin } from '../shared/coins.ts';
 import { config } from './config.ts';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -23,6 +24,16 @@ export const defaultSettings: Settings = {
     alertOnChange: false,
     dailyReportHour: 9,
     dailyReportMinute: 0,
+    email: {
+      enabled: false,
+      smtpHost: '',
+      smtpPort: 587,
+      smtpSecure: false,
+      smtpUser: '',
+      smtpPass: '',
+      from: '',
+      cooldownMinutes: 60,
+    },
   },
 };
 
@@ -35,6 +46,7 @@ function emptyDb(): Db {
     reports: [],
     runs: [],
     sourceStatus: {},
+    profiles: [],
   };
 }
 
@@ -46,6 +58,22 @@ function mergeSettings(saved: unknown): Settings {
   const base = structuredClone(defaultSettings);
   if (!saved || typeof saved !== 'object') return base;
   const s = saved as Partial<Settings>;
+  const savedNotify = (s.notify ?? {}) as Record<string, unknown>;
+  const savedEmail =
+    savedNotify.email && typeof savedNotify.email === 'object'
+      ? (savedNotify.email as Record<string, unknown>)
+      : {};
+  const email = { ...base.notify.email };
+  if (typeof savedEmail.enabled === 'boolean') email.enabled = savedEmail.enabled;
+  if (typeof savedEmail.smtpHost === 'string') email.smtpHost = savedEmail.smtpHost;
+  if (typeof savedEmail.smtpPort === 'number' && savedEmail.smtpPort > 0)
+    email.smtpPort = Math.round(savedEmail.smtpPort);
+  if (typeof savedEmail.smtpSecure === 'boolean') email.smtpSecure = savedEmail.smtpSecure;
+  if (typeof savedEmail.smtpUser === 'string') email.smtpUser = savedEmail.smtpUser;
+  if (typeof savedEmail.smtpPass === 'string') email.smtpPass = savedEmail.smtpPass;
+  if (typeof savedEmail.from === 'string') email.from = savedEmail.from;
+  if (typeof savedEmail.cooldownMinutes === 'number' && savedEmail.cooldownMinutes >= 0)
+    email.cooldownMinutes = Math.round(savedEmail.cooldownMinutes);
   return {
     autoScrape: typeof s.autoScrape === 'boolean' ? s.autoScrape : base.autoScrape,
     intervalSeconds:
@@ -53,7 +81,7 @@ function mergeSettings(saved: unknown): Settings {
         ? s.intervalSeconds
         : base.intervalSeconds,
     thresholds: { ...base.thresholds, ...(s.thresholds ?? {}) },
-    notify: { ...base.notify, ...(s.notify ?? {}) },
+    notify: { ...base.notify, ...(s.notify ?? {}), email },
   };
 }
 
@@ -69,6 +97,12 @@ export async function loadDb(): Promise<Db> {
       reports: parsed.reports ?? [],
       runs: parsed.runs ?? [],
       sourceStatus: parsed.sourceStatus ?? {},
+      profiles: Array.isArray(parsed.profiles)
+        ? parsed.profiles.map((p) => ({
+            ...p,
+            alertsEnabled: typeof p.alertsEnabled === 'boolean' ? p.alertsEnabled : true,
+          }))
+        : [],
     };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
@@ -111,11 +145,17 @@ export function mutate<T>(fn: (draft: Db) => T): T {
 
 export function updateSettings(patch: DeepPartial<Settings>): Settings {
   return mutate((d) => {
+    const patchNotify = (patch.notify ?? {}) as Record<string, unknown>;
     d.settings = mergeSettings({
       ...d.settings,
       ...patch,
       thresholds: { ...d.settings.thresholds, ...(patch.thresholds ?? {}) },
-      notify: { ...d.settings.notify, ...(patch.notify ?? {}) },
+      notify: {
+        ...d.settings.notify,
+        ...(patch.notify ?? {}),
+        // mergeSettings valida el bloque email; si el cliente no lo mandó, se conserva.
+        email: (patchNotify.email ?? d.settings.notify.email) as Settings['notify']['email'],
+      },
     });
     return d.settings;
   });
@@ -140,8 +180,83 @@ export function prune(): { snapshots: number; events: number; reports: number; r
 
 export async function clearHistory(): Promise<void> {
   const settings = db.settings;
-  db = { ...emptyDb(), settings };
+  const profiles = db.profiles;
+  db = { ...emptyDb(), settings, profiles };
   await persist();
+}
+
+/* ------------------------------- Perfiles ------------------------------- */
+
+export interface ProfileInput {
+  name?: unknown;
+  email?: unknown;
+  horizon?: unknown;
+  coins?: unknown;
+  currency?: unknown;
+  alertsEnabled?: unknown;
+}
+
+function normalizeProfileInput(
+  input: ProfileInput,
+  fallbackAlerts = true,
+): Omit<UserProfile, 'id' | 'createdAt'> {
+  const name = typeof input.name === 'string' ? input.name.trim().slice(0, 60) : '';
+  if (!name) throw new Error('El nombre es obligatorio.');
+  const email = typeof input.email === 'string' ? input.email.trim().toLowerCase().slice(0, 120) : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email inválido.');
+  const horizon = input.horizon === 'monthly' ? 'monthly' : input.horizon === 'daily' ? 'daily' : null;
+  if (!horizon) throw new Error("horizon debe ser 'daily' o 'monthly'.");
+  const currency = input.currency === 'MXN' ? 'MXN' : input.currency === 'USD' ? 'USD' : null;
+  if (!currency) throw new Error("currency debe ser 'USD' o 'MXN'.");
+  let coins: string[] = [];
+  if (Array.isArray(input.coins)) {
+    coins = [...new Set(input.coins.filter((c): c is string => typeof c === 'string'))];
+    const unknown = coins.filter((c) => !isKnownCoin(c));
+    if (unknown.length > 0) throw new Error(`Monedas desconocidas: ${unknown.join(', ')}`);
+  }
+  const alertsEnabled =
+    typeof input.alertsEnabled === 'boolean' ? input.alertsEnabled : fallbackAlerts;
+  return { name, email, horizon, coins, currency, alertsEnabled };
+}
+
+export function createProfile(input: ProfileInput): UserProfile {
+  const data = normalizeProfileInput(input, true);
+  const profile: UserProfile = { ...data, id: randomUUID(), createdAt: new Date().toISOString() };
+  mutate((d) => {
+    d.profiles.push(profile);
+  });
+  return profile;
+}
+
+export function setProfileAlerts(id: string, enabled: boolean): UserProfile {
+  const updated = mutate((d) => {
+    const found = d.profiles.find((p) => p.id === id);
+    if (!found) throw new Error('Perfil no encontrado.');
+    found.alertsEnabled = enabled;
+    return found;
+  });
+  return updated;
+}
+
+export function updateProfile(id: string, input: ProfileInput): UserProfile {
+  const existing = getDb().profiles.find((p) => p.id === id);
+  if (!existing) throw new Error('Perfil no encontrado.');
+  const data = normalizeProfileInput(input, existing.alertsEnabled);
+  const updated = mutate((d) => {
+    const found = d.profiles.find((p) => p.id === id);
+    if (!found) throw new Error('Perfil no encontrado.');
+    Object.assign(found, data);
+    return found;
+  });
+  return updated;
+}
+
+export function deleteProfile(id: string): void {
+  mutate((d) => {
+    const before = d.profiles.length;
+    d.profiles = d.profiles.filter((p) => p.id !== id);
+    if (d.profiles.length === before) throw new Error('Perfil no encontrado.');
+  });
 }
 
 type DeepPartial<T> = {

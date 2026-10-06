@@ -147,10 +147,9 @@ export function SourcesView({ stores }: { stores: StoreSummary[] }) {
         subtitle="Agregar una tienda nueva es sumar un módulo en server/sources y una entrada en el registro"
       >
         <p className="text-[12px] leading-relaxed text-muted">
-          El agente extrae precios de {stores.length} fuentes usando requests HTTP desde Node, no
+          El agente extrae precios de {stores.length} fuente usando requests HTTP desde Node, no
           desde el navegador: así no dependemos de CORS ni de las protecciones anti-bot del cliente.
-          La librería Anglo se raspa del HTML con Cheerio. Mercado cripto y Mercado eléctrico
-          consultan APIs públicas (CoinGecko y ESIOS/Red Eléctrica).
+          Mercado cripto consulta la API pública de CoinGecko (Top 10 en USD + MXN).
         </p>
       </Panel>
 

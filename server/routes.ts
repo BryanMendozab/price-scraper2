@@ -6,7 +6,10 @@ import type {
   StoreId,
   TrendPoint,
 } from '../shared/types.ts';
-import { getDb, updateSettings, clearHistory } from './store.ts';
+import { getDb, updateSettings, clearHistory, createProfile, updateProfile, deleteProfile, setProfileAlerts } from './store.ts';
+import { buildRecommendations } from './profiles/recommend.ts';
+import { actionable, buildProfileEmail, emailReady, resolveEmailConfig, sendMail } from './notify/email.ts';
+import { COINS } from '../shared/coins.ts';
 import { config } from './config.ts';
 import { testSource } from './agent/index.ts';
 import {
@@ -236,6 +239,124 @@ api.post('/reports/send', async (req, res) => {
   const report = existing ?? buildReport();
   const result = await dispatchReport(report, provider);
   res.status(result.ok ? 200 : 502).json(result);
+});
+
+/* -------------------------------- Perfiles -------------------------------- */
+
+api.get('/coins', (_req, res) => {
+  res.json({ coins: COINS });
+});
+
+api.get('/profiles', (_req, res) => {
+  res.json({ profiles: getDb().profiles });
+});
+
+api.post('/profiles', (req, res) => {
+  try {
+    const profile = createProfile(req.body ?? {});
+    res.status(201).json({ profile });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos inválidos' });
+  }
+});
+
+api.put('/profiles/:id', (req, res) => {
+  try {
+    const profile = updateProfile(req.params.id, req.body ?? {});
+    res.json({ profile });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Datos inválidos';
+    res.status(msg === 'Perfil no encontrado.' ? 404 : 400).json({ error: msg });
+  }
+});
+
+api.delete('/profiles/:id', (req, res) => {
+  try {
+    deleteProfile(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : 'No encontrado' });
+  }
+});
+
+api.get('/profiles/:id/recommendations', (req, res) => {
+  const profile = getDb().profiles.find((p) => p.id === req.params.id);
+  if (!profile) {
+    res.status(404).json({ error: 'Perfil no encontrado.' });
+    return;
+  }
+  res.json(buildRecommendations(profile));
+});
+
+api.patch('/profiles/:id/alerts', (req, res) => {
+  try {
+    const enabled = (req.body as { enabled?: unknown })?.enabled;
+    if (typeof enabled !== 'boolean') {
+      res.status(400).json({ error: "Body: { enabled: boolean }." });
+      return;
+    }
+    res.json({ profile: setProfileAlerts(req.params.id, enabled) });
+  } catch (err) {
+    res.status(404).json({ error: err instanceof Error ? err.message : 'No encontrado' });
+  }
+});
+
+/* --------------------------- Alertas por email ---------------------------- */
+
+api.get('/notify/email/status', (_req, res) => {
+  const cfg = resolveEmailConfig();
+  res.json({
+    enabled: getDb().settings.notify.email.enabled,
+    ready: emailReady(cfg),
+    host: cfg.host,
+    port: cfg.port,
+    user: cfg.user ? `${cfg.user.slice(0, 3)}…` : '',
+    from: cfg.from,
+  });
+});
+
+/** Vista previa del correo de un perfil: no envía nada, no necesita SMTP. */
+api.get('/notify/email/preview/:profileId', (req, res) => {
+  const profile = getDb().profiles.find((p) => p.id === req.params.profileId);
+  if (!profile) {
+    res.status(404).json({ error: 'Perfil no encontrado.' });
+    return;
+  }
+  const { recommendations } = buildRecommendations(profile);
+  const items = actionable(recommendations);
+  res.json({
+    profileId: profile.id,
+    to: profile.email,
+    actionable: items.length,
+    total: recommendations.length,
+    email: buildProfileEmail(profile, recommendations),
+  });
+});
+
+/** Envío de prueba al email indicado (sí usa SMTP). */
+api.post('/notify/email/test', async (req, res) => {
+  const to = (req.body as { to?: unknown })?.to;
+  if (typeof to !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    res.status(400).json({ error: 'Body: { to: "email válido" }.' });
+    return;
+  }
+  const profile = getDb().profiles[0] ?? {
+    id: 'preview',
+    name: 'Prueba',
+    email: to,
+    horizon: 'daily' as const,
+    coins: ['bitcoin', 'ethereum'],
+    currency: 'USD' as const,
+    alertsEnabled: true,
+    createdAt: new Date().toISOString(),
+  };
+  const { recommendations } = buildRecommendations(profile);
+  try {
+    await sendMail(to, buildProfileEmail({ ...profile, email: to }, recommendations));
+    res.json({ ok: true, detail: `Correo de prueba enviado a ${to}.` });
+  } catch (err) {
+    res.status(502).json({ ok: false, error: err instanceof Error ? err.message : 'Envío fallido' });
+  }
 });
 
 /* ------------------------------ Configuración ----------------------------- */

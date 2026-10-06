@@ -207,9 +207,13 @@ export function buildStoreSummaries(
   return SOURCES.map(({ meta }) => {
     const { latest, previous } = latestAndPrevious(snapshots, meta.id);
     const products = latest?.products ?? [];
-    const prices = products.map((p) => p.price).filter((p) => p > 0);
+    // Fase 1 solo-cripto: el promedio se calcula solo en USD (referencia).
+    // Los productos en MXN se siguen monitoreando y generan alertas igual.
+    const prices = products.filter((p) => p.currency === REFERENCE_CURRENCY).map((p) => p.price).filter((p) => p > 0);
     const avgPrice = average(prices);
-    const prevAvg = average(previous?.products.map((p) => p.price).filter((p) => p > 0) ?? []);
+    const prevAvg = average(
+      (previous?.products ?? []).filter((p) => p.currency === REFERENCE_CURRENCY).map((p) => p.price).filter((p) => p > 0),
+    );
     const outOfStock = products.filter((p) => p.availability === 'out_of_stock').length;
 
     return {
@@ -218,7 +222,7 @@ export function buildStoreSummaries(
       kind: meta.kind,
       homepage: meta.homepage,
       description: meta.description,
-      currency: products[0]?.currency ?? 'USD',
+      currency: REFERENCE_CURRENCY,
       products: products.length,
       avgPrice,
       prevAvgPrice: prevAvg,
@@ -237,11 +241,11 @@ export function buildStoreSummaries(
 }
 
 /**
- * Moneda de referencia para el promedio de mercado. Mercado cripto cotiza en
- * ARS con valores de millones, asi que mezclarlo con el catalogo de libros en
- * GBP no tendria sentido: el promedio se calcula solo con libras.
+ * Moneda de referencia (Fase 1 solo-cripto).
+ * El promedio y la tendencia se calculan solo en USD; MXN se monitorea
+ * y genera alertas igual, pero no se mezcla en el promedio.
  */
-export const REFERENCE_CURRENCY = 'GBP';
+export const REFERENCE_CURRENCY = 'USD';
 
 export function computeKpis(
   summaries: StoreSummary[],
@@ -281,7 +285,9 @@ export function buildTrend(snapshots: Snapshot[], maxPoints = 30): TrendPoint[] 
   for (const snaps of byRun.values()) {
     const point: TrendPoint = { ts: snaps[0].ts };
     for (const snap of snaps) {
-      const avg = average(snap.products.map((p) => p.price).filter((p) => p > 0));
+      const avg = average(
+        snap.products.filter((p) => p.currency === REFERENCE_CURRENCY).map((p) => p.price).filter((p) => p > 0),
+      );
       if (avg !== null) point[snap.storeId] = avg;
     }
     if (Object.keys(point).length > 0) points.push(point);

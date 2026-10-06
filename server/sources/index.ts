@@ -1,8 +1,6 @@
 import type { Product, ScrapeResult, SourceMeta, StoreId } from '../../shared/types.ts';
 import { errorMessage } from '../utils.ts';
-import { scrapeLiberiaAnglo } from './booksToScrape.ts';
 import { scrapeMercadoCripto } from './coingecko.ts';
-import { scrapeOMIE } from './omie.ts';
 
 type Scraper = () => Promise<Product[]>;
 
@@ -12,39 +10,19 @@ interface SourceDefinition {
 }
 
 /**
- * Registro de fuentes. Agregar una tienda nueva es agregar una entrada aqui:
- * los selectores y la normalizacion quedan encapsulados en su propio modulo.
+ * Registro de fuentes (Fase 1: solo-cripto).
+ * Mercado cripto trae el Top 10 en USD + MXN desde CoinGecko.
  */
 export const SOURCES: SourceDefinition[] = [
-  {
-    meta: {
-      id: 'anglo',
-      name: 'Libreria Anglo',
-      kind: 'html',
-      homepage: 'https://books.toscrape.com',
-      description: 'Scraping de HTML real con Cheerio. Precio en libras y stock.',
-    },
-    run: scrapeLiberiaAnglo,
-  },
   {
     meta: {
       id: 'mercado',
       name: 'Mercado cripto',
       kind: 'api',
       homepage: 'https://www.coingecko.com',
-      description: 'Cotizacion BTC/ETH en pesos. Cambia en cada corrida.',
+      description: 'Top 10 cripto en USD + MXN. Cambia en cada corrida.',
     },
     run: scrapeMercadoCripto,
-  },
-  {
-    meta: {
-      id: 'omie',
-      name: 'Mercado eléctrico (OMIE)',
-      kind: 'api',
-      homepage: 'https://www.esios.ree.es/es/pvpc',
-      description: 'Precio PVPC horario en EUR/MWh (Red Eléctrica). Real y cambia por franja horaria.',
-    },
-    run: scrapeOMIE,
   },
 ];
 

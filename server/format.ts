@@ -1,14 +1,15 @@
 /** Formateo en español para el texto de reportes y alertas. */
 
-const LOCALE = 'es-AR';
+const LOCALE = 'es-MX';
 
 export function money(value: number | null | undefined, currency = 'USD'): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  const maximumFractionDigits = value >= 1000 ? 0 : value < 1 ? 4 : 2;
   try {
     return new Intl.NumberFormat(LOCALE, {
       style: 'currency',
       currency,
-      maximumFractionDigits: currency === 'ARS' || currency === 'GBP' ? 0 : 2,
+      maximumFractionDigits,
     }).format(value);
   } catch {
     return `${value.toFixed(2)} ${currency}`;
