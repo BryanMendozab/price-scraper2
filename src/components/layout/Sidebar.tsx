@@ -23,7 +23,7 @@ const ICONS: Record<TabId, typeof LayoutDashboard> = {
 const SUBTITLE: Record<TabId, string> = {
   resumen: 'Estado general del mercado y actividad del agente',
   productos: 'Precios actuales y variación contra la corrida anterior',
-  perfiles: 'Perfiles diario/mensual y recomendaciones en lenguaje sencillo',
+  perfiles: 'perfiles de trading con simulaci�n (presupuesto ficticio) basada en scraping y recomendaciones en lenguaje sencillo',
   alertas: 'Historial completo de cambios detectados',
   reporte: 'Generación y entrega del reporte diario',
   config: 'Intervalos, umbrales y canal de notificación',

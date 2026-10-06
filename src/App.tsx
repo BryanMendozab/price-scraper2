@@ -1,5 +1,3 @@
-import { useCallback, useState } from 'react';
-import { api } from './lib/api';
 import { useDashboard } from './hooks/useDashboard';
 import { useHashTab, TABS } from './hooks/useHashTab';
 import { MobileNav, Sidebar, SUBTITLE } from './components/layout/Sidebar';
@@ -15,20 +13,6 @@ import { ErrorNote } from './components/ui';
 export default function App() {
   const [tab, goTo] = useHashTab();
   const { data, loading, error, refresh } = useDashboard();
-  const [pending, setPending] = useState(false);
-
-  const runNow = useCallback(async () => {
-    setPending(true);
-    try {
-      await api.runScrape();
-    } catch {
-      /* el error se muestra en el dashboard */
-    } finally {
-      setPending(false);
-      void refresh();
-    }
-  }, [refresh]);
-
   const stores = data?.stores ?? [];
   const title = TABS.find((t) => t.id === tab)?.label ?? 'Resumen';
 
@@ -37,26 +21,13 @@ export default function App() {
       <Sidebar tab={tab} onChange={goTo} alertCount={data?.kpis.events24h ?? 0} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar
-          title={title}
-          subtitle={SUBTITLE[tab]}
-          crawler={data?.crawler}
-          onRunNow={() => void runNow()}
-          pending={pending}
-        />
+        <Topbar title={title} subtitle={SUBTITLE[tab]} />
         <MobileNav tab={tab} onChange={goTo} />
 
         <main className="min-h-0 flex-1 overflow-y-auto p-4">
           <div className="mx-auto max-w-[1400px]">
             {tab === 'resumen' && (
-              <OverviewView
-                data={data}
-                loading={loading}
-                error={error}
-                onRunNow={() => void runNow()}
-                pending={pending}
-                onGoToAlerts={() => goTo('alertas')}
-              />
+              <OverviewView data={data} loading={loading} error={error} onGoToAlerts={() => goTo('alertas')} />
             )}
             {tab === 'productos' && <ProductsView stores={stores} />}
             {tab === 'perfiles' && <ProfilesView />}

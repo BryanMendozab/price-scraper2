@@ -1,40 +1,34 @@
-import { BellRing, DollarSign, Radar, Store as StoreIcon } from 'lucide-react';
+﻿import { BellRing, DollarSign, Store as StoreIcon } from 'lucide-react';
 import type { DashboardData } from '../../../shared/types';
-import { money, num, timeAgo } from '../../lib/format';
+import { money, num } from '../../lib/format';
 import { EmptyState, ErrorNote, EventRow, Panel, Spinner } from '../ui';
 import { KpiCard } from './KpiCard';
 import { TrendChart } from './TrendChart';
-import { TopMovers } from './TopMovers';
-import { CrawlerStatus } from './CrawlerStatus';
 
 export function OverviewView({
   data,
   loading,
   error,
-  onRunNow,
-  pending,
   onGoToAlerts,
 }: {
   data: DashboardData | null;
   loading: boolean;
   error: string | null;
-  onRunNow: () => void;
-  pending: boolean;
   onGoToAlerts: () => void;
 }) {
-  if (loading && !data) return <Spinner label="Conectando con el agente…" />;
+  if (loading && !data) return <Spinner label="Conectando con el agente" />;
   if (error && !data) return <ErrorNote message={error} />;
   if (!data) return null;
 
-  const { kpis, crawler } = data;
+  const { kpis } = data;
 
   return (
     <div className="space-y-4">
       {error && <ErrorNote message={error} />}
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <KpiCard
-          label="Criptos rastreadas"
+          label="Criptos monitoreadas"
           value={num(kpis.productsTracked)}
           sub="Top 10 en MXN"
           icon={StoreIcon}
@@ -49,14 +43,7 @@ export function OverviewView({
           onClick={onGoToAlerts}
         />
         <KpiCard
-          label="Última pasada"
-          value={timeAgo(kpis.lastRunAt)}
-          sub={crawler.autoScrape ? `cada ${crawler.intervalSeconds}s` : 'manual'}
-          icon={Radar}
-          tone={crawler.running ? 'warn' : 'down'}
-        />
-        <KpiCard
-          label={`Precio medio (${kpis.avgCurrency})`}
+          label="Precio medio"
           value={money(kpis.avgPrice, kpis.avgCurrency)}
           sub="Top cripto MXN"
           icon={DollarSign}
@@ -69,7 +56,6 @@ export function OverviewView({
           <TrendChart />
         </div>
         <div className="space-y-4">
-          <CrawlerStatus crawler={crawler} />
           <Panel title="Alertas recientes" bodyClass="">
             {data.recentEvents.length === 0 ? (
               <EmptyState message="Sin alertas aún." hint="Se generan cuando hay variaciones relevantes." />
@@ -86,16 +72,9 @@ export function OverviewView({
               </button>
             </div>
           </Panel>
-          <Panel title="Acción rápida">
-            <button className="btn btn-primary w-full" onClick={onRunNow} disabled={pending}>
-              <Radar size={14} />
-              {pending ? 'Ejecutando…' : 'Ejecutar scraping ahora'}
-            </button>
-          </Panel>
         </div>
       </div>
 
-      <TopMovers up={data.topMoversUp} down={data.topMoversDown} onShowAll={onGoToAlerts} />
     </div>
   );
 }

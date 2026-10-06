@@ -1,4 +1,4 @@
-import type { Product, ScrapeResult, SourceMeta, StoreId } from '../../shared/types.ts';
+﻿import type { Product, ScrapeResult, SourceMeta, StoreId } from '../../shared/types.ts';
 import { errorMessage } from '../utils.ts';
 import { scrapeMercadoCripto } from './coingecko.ts';
 
@@ -9,10 +9,7 @@ interface SourceDefinition {
   run: Scraper;
 }
 
-/**
- * Registro de fuentes (Fase 1: solo-cripto).
- * Mercado cripto trae el Top 10 en USD + MXN desde CoinGecko.
- */
+/** Registro de fuentes. */
 export const SOURCES: SourceDefinition[] = [
   {
     meta: {
@@ -20,7 +17,7 @@ export const SOURCES: SourceDefinition[] = [
       name: 'Mercado cripto',
       kind: 'api',
       homepage: 'https://www.coingecko.com',
-      description: 'Top 10 cripto en USD + MXN. Cambia en cada corrida.',
+      description: 'Cotización BTC/ETH en ARS.',
     },
     run: scrapeMercadoCripto,
   },
@@ -28,18 +25,13 @@ export const SOURCES: SourceDefinition[] = [
 
 export function sourceMeta(storeId: StoreId): SourceMeta {
   const found = SOURCES.find((s) => s.meta.id === storeId);
-  if (!found) throw new Error(`Fuente desconocida: ${storeId}`);
+  if (!found) throw new Error('Fuente desconocida: ' + storeId);
   return found.meta;
 }
 
-export function sourceName(storeId: StoreId): string {
-  return SOURCES.find((s) => s.meta.id === storeId)?.meta.name ?? storeId;
-}
-
-/** Corre una fuente aislada y convierte cualquier fallo en un resultado con error. */
 export async function runSource(storeId: StoreId): Promise<ScrapeResult> {
   const source = SOURCES.find((s) => s.meta.id === storeId);
-  if (!source) throw new Error(`Fuente desconocida: ${storeId}`);
+  if (!source) throw new Error('Fuente desconocida: ' + storeId);
 
   const startedAt = Date.now();
   try {
@@ -64,7 +56,6 @@ export async function runSource(storeId: StoreId): Promise<ScrapeResult> {
   }
 }
 
-/** Corre todas las fuentes en paralelo. */
 export async function runAllSources(): Promise<ScrapeResult[]> {
   return Promise.all(SOURCES.map((s) => runSource(s.meta.id)));
 }

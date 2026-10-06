@@ -24,6 +24,8 @@ export class ApiError extends Error {
   }
 }
 
+const emptyCoins = () => ({ coins: [] as Array<{ id: string; symbol: string; name: string }> });
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     ...init,
@@ -121,7 +123,7 @@ export const api = {
 
   clearData: () => request<{ ok: boolean }>('/data/clear', { method: 'POST' }),
 
-  coins: () => request<{ coins: Array<{ id: string; symbol: string; name: string }> }>('/coins'),
+  coins: () => request<{ coins: Array<{ id: string; symbol: string; name: string }> }>('/coins').catch(() => emptyCoins()),
 
   profiles: () => request<{ profiles: UserProfile[] }>('/profiles'),
 

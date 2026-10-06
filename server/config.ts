@@ -1,5 +1,9 @@
 import 'dotenv/config';
 
+const process = (globalThis as typeof globalThis & {
+  process: { env: Record<string, string | undefined> };
+}).process;
+
 function num(name: string, fallback: number): number {
   const v = process.env[name];
   const n = v ? Number(v) : NaN;

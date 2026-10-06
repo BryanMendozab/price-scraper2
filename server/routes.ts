@@ -6,9 +6,8 @@ import type {
   StoreId,
   TrendPoint,
 } from '../shared/types.ts';
-import { getDb, updateSettings, clearHistory, createProfile, updateProfile, deleteProfile, setProfileAlerts } from './store.ts';
-import { buildRecommendations } from './profiles/recommend.ts';
-import { actionable, buildProfileEmail, emailReady, resolveEmailConfig, sendMail } from './notify/email.ts';
+import { getDb, updateSettings, clearHistory } from './store.ts';
+import { resolveEmailConfig, emailReady, sendMail } from './notify/email.ts';
 import { COINS } from '../shared/coins.ts';
 import { config } from './config.ts';
 import { testSource } from './agent/index.ts';
@@ -427,4 +426,12 @@ api.get('/trend', (_req, res) => {
 api.get('/trend/indexed', (_req, res) => {
   const points = buildIndexedTrend(getDb().snapshots);
   res.json({ coins: COINS, points, total: points.length });
+});
+
+api.get('/agents', (_req, res) => {
+  res.json({ agents: getDb().agents });
+});
+
+api.get('/sim/recommendations', (_req, res) => {
+  res.json(simulateAgents());
 });

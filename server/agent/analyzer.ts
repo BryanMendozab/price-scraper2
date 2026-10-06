@@ -13,7 +13,7 @@ import type {
   TrendPoint,
 } from '../../shared/types.ts';
 import { round2 } from '../utils.ts';
-import { SOURCES, sourceName } from '../sources/index.ts';
+import { SOURCES, sourceMeta } from '../sources/index.ts';
 import { COINS } from '../../shared/coins.ts';
 
 const DAY_MS = 86_400_000;
@@ -148,7 +148,7 @@ export function materialize(
       id: randomUUID(),
       ts,
       storeId,
-      storeName: sourceName(storeId),
+      storeName: sourceMeta(storeId).name,
       productId: d.product.id,
       title: d.product.title,
       category: d.product.category,
