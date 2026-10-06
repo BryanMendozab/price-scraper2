@@ -192,7 +192,6 @@ export interface ProfileInput {
   email?: unknown;
   horizon?: unknown;
   coins?: unknown;
-  currency?: unknown;
   alertsEnabled?: unknown;
 }
 
@@ -204,10 +203,13 @@ function normalizeProfileInput(
   if (!name) throw new Error('El nombre es obligatorio.');
   const email = typeof input.email === 'string' ? input.email.trim().toLowerCase().slice(0, 120) : '';
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error('Email inválido.');
-  const horizon = input.horizon === 'monthly' ? 'monthly' : input.horizon === 'daily' ? 'daily' : null;
-  if (!horizon) throw new Error("horizon debe ser 'daily' o 'monthly'.");
-  const currency = input.currency === 'MXN' ? 'MXN' : input.currency === 'USD' ? 'USD' : null;
-  if (!currency) throw new Error("currency debe ser 'USD' o 'MXN'.");
+  // 'monthly' es el valor viejo (Fase 2): se acepta como 'swing' para no romper nada.
+  const rawHorizon = input.horizon === 'monthly' ? 'swing' : input.horizon;
+  const horizon =
+    rawHorizon === 'scalper' || rawHorizon === 'daily' || rawHorizon === 'swing' || rawHorizon === 'holder'
+      ? rawHorizon
+      : null;
+  if (!horizon) throw new Error("horizon debe ser 'scalper', 'daily', 'swing' o 'holder'.");
   let coins: string[] = [];
   if (Array.isArray(input.coins)) {
     coins = [...new Set(input.coins.filter((c): c is string => typeof c === 'string'))];
@@ -216,7 +218,7 @@ function normalizeProfileInput(
   }
   const alertsEnabled =
     typeof input.alertsEnabled === 'boolean' ? input.alertsEnabled : fallbackAlerts;
-  return { name, email, horizon, coins, currency, alertsEnabled };
+  return { name, email, horizon, coins, alertsEnabled };
 }
 
 export function createProfile(input: ProfileInput): UserProfile {

@@ -1,4 +1,4 @@
-import type { Recommendation, Snapshot, UserProfile } from '../../shared/types.ts';
+import type { Recommendation, Snapshot, UserProfile, UserHorizon } from '../../shared/types.ts';
 import { COINS, coinMeta } from '../../shared/coins.ts';
 import { getDb } from '../store.ts';
 import { money, pctStr } from '../format.ts';
@@ -7,8 +7,8 @@ import { round2 } from '../utils.ts';
 export const RECOMMENDATION_DISCLAIMER =
   'Contenido educativo: no es asesoría financiera. Las criptomonedas son volátiles.';
 
-function productId(coinId: string, currency: 'USD' | 'MXN'): string {
-  return `mercado-${coinId}-${currency.toLowerCase()}`;
+function productId(coinId: string): string {
+  return `mercado-${coinId}-mxn`;
 }
 
 function latestSnapshots(): { latest?: Snapshot; previous?: Snapshot } {
@@ -23,9 +23,48 @@ function fmtPct(v: number | null): string {
   return `${dir} ${abs}%`;
 }
 
+interface HorizonCfg {
+  label: string;
+  trade: string;
+  smallMove: number;
+  bigMove: number;
+  calm: string;
+}
+
+/** Sensibilidad por estilo: el scalper reacciona al 1%, el holder recién al 8%. */
+const HORIZONS: Record<UserHorizon, HorizonCfg> = {
+  scalper: {
+    label: 'scalper',
+    trade: 'Operas en minutos/horas: cada punto cuenta hoy.',
+    smallMove: 1,
+    bigMove: 3,
+    calm: 'Nada que operar ahora. Espera tu señal.',
+  },
+  daily: {
+    label: 'diario',
+    trade: 'Operas a diario: estos movimientos sí te afectan hoy.',
+    smallMove: 2,
+    bigMove: 5,
+    calm: 'No hagas nada hoy. Revisa mañana.',
+  },
+  swing: {
+    label: 'swing',
+    trade: 'Operas en días/semanas: piensa en la tendencia, no en el ruido.',
+    smallMove: 5,
+    bigMove: 10,
+    calm: 'No hagas nada esta semana por este movimiento.',
+  },
+  holder: {
+    label: 'holder',
+    trade: 'Operas a largo plazo: esto suele ser ruido normal del mercado.',
+    smallMove: 8,
+    bigMove: 15,
+    calm: 'No hagas nada este año por este movimiento.',
+  },
+};
+
 /**
- * Motor de recomendaciones determinista (Fase 2).
- * Diario = sensible (reacciona desde 2%); mensual = tolerante (reacciona desde 8%).
+ * Motor de recomendaciones determinista.
  * La señal principal es el cambio en 24h de CoinGecko (rating); la secundaria,
  * la variación entre las últimas 2 corridas.
  */
@@ -37,13 +76,12 @@ export function buildRecommendations(profile: UserProfile): {
   const generatedAt = new Date().toISOString();
   const { latest, previous } = latestSnapshots();
   const coins = profile.coins.length > 0 ? profile.coins : COINS.map((c) => c.id);
-  const isDaily = profile.horizon === 'daily';
-  const bigMove = isDaily ? 5 : 12;
-  const smallMove = isDaily ? 2 : 6;
+  const cfg = HORIZONS[profile.horizon] ?? HORIZONS.daily;
+  const patient = profile.horizon === 'swing' || profile.horizon === 'holder';
 
   const recommendations: Recommendation[] = coins.map((coinId) => {
     const meta = coinMeta(coinId) ?? { id: coinId, symbol: coinId.toUpperCase(), name: coinId };
-    const pid = productId(coinId, profile.currency);
+    const pid = productId(coinId);
     const curr = latest?.products.find((p) => p.id === pid) ?? null;
     const prev = previous?.products.find((p) => p.id === pid) ?? null;
     const price = curr?.price ?? null;
@@ -57,14 +95,15 @@ export function buildRecommendations(profile: UserProfile): {
     const abs = Math.abs(signal);
 
     let verdict: Recommendation['verdict'] = 'calma';
-    if (abs >= bigMove) verdict = signal > 0 ? 'riesgo' : 'oportunidad';
-    else if (abs >= smallMove) verdict = 'atencion';
+    if (abs >= cfg.bigMove) verdict = signal > 0 ? 'riesgo' : 'oportunidad';
+    else if (abs >= cfg.smallMove) verdict = 'atencion';
 
-    // Mensual amortigua: lo que para un diario es riesgo, para un mensual es atención.
-    if (!isDaily && verdict === 'riesgo' && abs < bigMove + 6) verdict = 'atencion';
-    if (!isDaily && verdict === 'oportunidad' && abs < bigMove + 6) verdict = 'atencion';
+    // Los perfiles pacientes amortiguan: solo un movimiento enorme es riesgo/oportunidad.
+    if (patient && (verdict === 'riesgo' || verdict === 'oportunidad') && abs < cfg.bigMove + 6) {
+      verdict = 'atencion';
+    }
 
-    const priceStr = price !== null ? money(price, profile.currency) : 'sin precio aún';
+    const priceStr = price !== null ? money(price, 'MXN') : 'sin precio aún';
     const headline =
       verdict === 'calma'
         ? `${meta.name} está tranquilo`
@@ -76,38 +115,32 @@ export function buildRecommendations(profile: UserProfile): {
 
     const explanation =
       price === null
-        ? `Aún no hay precio de ${meta.name} en ${profile.currency}. Ejecuta un scraping para empezar.`
+        ? `Aún no hay precio de ${meta.name} en MXN. Ejecuta un scraping para empezar.`
         : `${meta.name} (${meta.symbol}) cuesta ${priceStr}. En 24 horas ${fmtPct(change24hPct)}${
             changeRunPct !== null ? ` y entre las últimas 2 corridas ${fmtPct(changeRunPct)}` : ''
-          }. ${
-            isDaily
-              ? 'Operas a diario: estos movimientos sí te afectan hoy.'
-              : 'Operas al mes: esto suele ser ruido normal del mercado.'
-          }`;
+          }. ${cfg.trade}`;
 
     const suggestion =
       verdict === 'calma'
-        ? isDaily
-          ? 'No hagas nada hoy. Revisa mañana.'
-          : 'No hagas nada este mes por este movimiento.'
+        ? cfg.calm
         : verdict === 'atencion'
-          ? isDaily
-            ? `Pon una alerta mental en ${pctStr(signal)}: si sigue moviéndose, revisa antes de comprar o vender.`
-            : 'Anótalo y revisa en tu balance mensual, no hoy.'
+          ? patient
+            ? `Pon una alerta mental en ${pctStr(signal)}: anótalo y revisa en tu balance, no hoy.`
+            : `Pon una alerta mental en ${pctStr(signal)}: si sigue moviéndose, revisa antes de comprar o vender.`
           : verdict === 'oportunidad'
-            ? isDaily
-              ? 'Si planeabas comprar, este bajón puede favorecerte: compra en partes, nunca todo de golpe.'
-              : 'Si tu plan mensual incluía comprar, este bajón juega a tu favor. Mantén tu plan, no lo adelantes por impulso.'
-            : isDaily
-              ? 'Evita comprar con prisa cuando todo sube: espera a que se enfríe.'
-              : 'No persigas la subida con tu compra mensual: respeta tu fecha y monto planeados.';
+            ? patient
+              ? 'Si tu plan incluía comprar, este bajón juega a tu favor. Mantén tu plan, no lo adelantes por impulso.'
+              : 'Si planeabas comprar, este bajón puede favorecerte: compra en partes, nunca todo de golpe.'
+            : patient
+              ? 'No persigas la subida: respeta tu fecha y monto planeados.'
+              : 'Evita comprar con prisa cuando todo sube: espera a que se enfríe.';
 
     return {
       profileId: profile.id,
       coinId,
       symbol: meta.symbol,
-      title: `${meta.name} (${meta.symbol}/${profile.currency})`,
-      currency: profile.currency,
+      title: `${meta.name} (${meta.symbol}/MXN)`,
+      currency: 'MXN',
       price,
       prevPrice,
       changeRunPct,

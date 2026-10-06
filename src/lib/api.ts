@@ -11,8 +11,10 @@ import type {
   StoreId,
   StoreSummary,
   SourceMeta,
+  TrendPoint,
   UserProfile,
 } from '../../shared/types';
+import type { CoinMeta } from '../../shared/coins';
 
 export class ApiError extends Error {
   status: number;
@@ -86,6 +88,8 @@ export const api = {
 
   stores: () => request<{ stores: StoreSummary[] }>('/stores'),
 
+  trendIndexed: () => request<{ coins: CoinMeta[]; points: TrendPoint[]; total: number }>('/trend/indexed'),
+
   testStore: (storeId: StoreId) =>
     request<{
       ok: boolean;
@@ -121,10 +125,10 @@ export const api = {
 
   profiles: () => request<{ profiles: UserProfile[] }>('/profiles'),
 
-  createProfile: (body: { name: string; email: string; horizon: string; coins: string[]; currency: string; alertsEnabled?: boolean }) =>
+  createProfile: (body: { name: string; email: string; horizon: string; coins: string[]; alertsEnabled?: boolean }) =>
     request<{ profile: UserProfile }>('/profiles', { method: 'POST', body: JSON.stringify(body) }),
 
-  updateProfile: (id: string, body: { name: string; email: string; horizon: string; coins: string[]; currency: string; alertsEnabled?: boolean }) =>
+  updateProfile: (id: string, body: { name: string; email: string; horizon: string; coins: string[]; alertsEnabled?: boolean }) =>
     request<{ profile: UserProfile }>(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
 
   deleteProfile: (id: string) => request<{ ok: boolean }>(`/profiles/${id}`, { method: 'DELETE' }),

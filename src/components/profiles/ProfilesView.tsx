@@ -25,10 +25,15 @@ interface CoinMeta {
   name: string;
 }
 
-const HORIZON_LABEL = { daily: 'Diario', monthly: 'Mensual' } as const;
+const HORIZON_LABEL = {
+  scalper: 'Scalper',
+  daily: 'Day trader',
+  swing: 'Swing',
+  holder: 'Holder',
+} as const;
 
 function emptyForm() {
-  return { name: '', email: '', horizon: 'daily', currency: 'USD', coins: [] as string[] };
+  return { name: '', email: '', horizon: 'daily', coins: [] as string[] };
 }
 
 export function ProfilesView() {
@@ -145,7 +150,7 @@ export function ProfilesView() {
 
       <Panel
         title="Perfiles de usuario"
-        subtitle="Diario = sensible a movimientos chicos · Mensual = tolerante al ruido · Vacío en monedas = todas"
+        subtitle="Scalper = minutos · Day trader = cierra en el día · Swing = días/semanas · Holder = meses/años · Vacío en monedas = todas"
       >
         <div className="grid gap-3 md:grid-cols-2">
           <input
@@ -165,16 +170,10 @@ export function ProfilesView() {
             value={form.horizon}
             onChange={(e) => setForm({ ...form, horizon: e.target.value })}
           >
-            <option value="daily">Opera a diario</option>
-            <option value="monthly">Opera al mes</option>
-          </select>
-          <select
-            className="input"
-            value={form.currency}
-            onChange={(e) => setForm({ ...form, currency: e.target.value })}
-          >
-            <option value="USD">Precios en USD</option>
-            <option value="MXN">Precios en MXN</option>
+            <option value="scalper">Scalper (minutos/horas)</option>
+            <option value="daily">Day trader (cierra en el día)</option>
+            <option value="swing">Swing (días/semanas)</option>
+            <option value="holder">Holder (meses/años)</option>
           </select>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -218,8 +217,8 @@ export function ProfilesView() {
                     <span className="block truncate text-[13px] font-medium">{p.name}</span>
                     <span className="block truncate text-[11px] text-muted">{p.email}</span>
                     <span className="mt-1 flex flex-wrap gap-1">
-                      <Chip tone="brand">{HORIZON_LABEL[p.horizon]}</Chip>
-                      <Chip>{p.currency}</Chip>
+                      <Chip tone="brand">{HORIZON_LABEL[p.horizon] ?? p.horizon}</Chip>
+                      <Chip>MXN</Chip>
                       <Chip>{p.coins.length === 0 ? 'todas' : `${p.coins.length} monedas`}</Chip>
                       <Chip tone={p.alertsEnabled ? 'live' : 'neutral'}>
                         {p.alertsEnabled ? 'email on' : 'email off'}
@@ -264,7 +263,7 @@ export function ProfilesView() {
           <div className="xl:col-span-2">
             <Panel
               title={selected ? `Recomendaciones para ${selected.name}` : 'Recomendaciones'}
-              subtitle={selected ? `${HORIZON_LABEL[selected.horizon]} · ${selected.currency}` : undefined}
+              subtitle={selected ? `${HORIZON_LABEL[selected.horizon] ?? selected.horizon} · MXN` : undefined}
               action={
                 selected && (
                   <span className="flex gap-2">

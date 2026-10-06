@@ -5,7 +5,6 @@ import {
   LayoutDashboard,
   Radio,
   Send,
-  Server,
   Settings2,
   Users,
 } from 'lucide-react';
@@ -18,7 +17,6 @@ const ICONS: Record<TabId, typeof LayoutDashboard> = {
   perfiles: Users,
   alertas: BellRing,
   reporte: Send,
-  fuentes: Server,
   config: Settings2,
 };
 
@@ -28,7 +26,6 @@ const SUBTITLE: Record<TabId, string> = {
   perfiles: 'Perfiles diario/mensual y recomendaciones en lenguaje sencillo',
   alertas: 'Historial completo de cambios detectados',
   reporte: 'Generación y entrega del reporte diario',
-  fuentes: 'Tiendas monitoreadas y estado de cada scraping',
   config: 'Intervalos, umbrales y canal de notificación',
 };
 

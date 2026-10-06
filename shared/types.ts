@@ -192,10 +192,11 @@ export interface Db {
 
 /* ------------------------------- Perfiles ------------------------------- */
 
-/** Horizonte del usuario: opera todos los días o una vez al mes. */
-export type UserHorizon = 'daily' | 'monthly';
-
-export type ProfileCurrency = 'USD' | 'MXN';
+/**
+ * Estilo de inversor: scalper (minutos/horas), daily/day trader (cierra en el día),
+ * swing (días/semanas) y holder (meses/años).
+ */
+export type UserHorizon = 'scalper' | 'daily' | 'swing' | 'holder';
 
 /** Perfil de usuario: qué monedas mira y con qué horizonte. Sin auth (proyecto escolar). */
 export interface UserProfile {
@@ -205,7 +206,6 @@ export interface UserProfile {
   horizon: UserHorizon;
   /** Ids de CoinGecko (ej. 'bitcoin'). Vacío = todas. */
   coins: string[];
-  currency: ProfileCurrency;
   /** Si es false, el scheduler salta este perfil (Fase 3). */
   alertsEnabled: boolean;
   createdAt: string;
@@ -219,7 +219,8 @@ export interface Recommendation {
   coinId: string;
   symbol: string;
   title: string;
-  currency: ProfileCurrency;
+  /** Siempre 'MXN': el proyecto cotiza solo en pesos mexicanos. */
+  currency: string;
   price: number | null;
   prevPrice: number | null;
   changeRunPct: number | null;

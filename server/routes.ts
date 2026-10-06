@@ -13,6 +13,7 @@ import { COINS } from '../shared/coins.ts';
 import { config } from './config.ts';
 import { testSource } from './agent/index.ts';
 import {
+  buildIndexedTrend,
   buildStoreSummaries,
   buildTrend,
   computeKpis,
@@ -346,7 +347,6 @@ api.post('/notify/email/test', async (req, res) => {
     email: to,
     horizon: 'daily' as const,
     coins: ['bitcoin', 'ethereum'],
-    currency: 'USD' as const,
     alertsEnabled: true,
     createdAt: new Date().toISOString(),
   };
@@ -421,4 +421,10 @@ api.get('/export.csv', (_req, res) => {
 api.get('/trend', (_req, res) => {
   const points: TrendPoint[] = buildTrend(getDb().snapshots);
   res.json({ points, total: points.length });
+});
+
+/** Tendencia indexada base 100 por moneda: ideal para graficar sin que BTC aplaste la escala. */
+api.get('/trend/indexed', (_req, res) => {
+  const points = buildIndexedTrend(getDb().snapshots);
+  res.json({ coins: COINS, points, total: points.length });
 });

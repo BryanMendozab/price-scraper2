@@ -9,7 +9,6 @@ import { ProductsView } from './components/products/ProductsView';
 import { ProfilesView } from './components/profiles/ProfilesView';
 import { AlertsView } from './components/alerts/AlertsView';
 import { ReportView } from './components/report/ReportView';
-import { SourcesView } from './components/sources/SourcesView';
 import { SettingsView } from './components/settings/SettingsView';
 import { ErrorNote } from './components/ui';
 
@@ -63,7 +62,6 @@ export default function App() {
             {tab === 'perfiles' && <ProfilesView />}
             {tab === 'alertas' && <AlertsView stores={stores} />}
             {tab === 'reporte' && <ReportView onSent={() => void refresh()} />}
-            {tab === 'fuentes' && <SourcesView stores={stores} />}
             {tab === 'config' && <SettingsView onSaved={() => void refresh()} />}
           </div>
         </main>

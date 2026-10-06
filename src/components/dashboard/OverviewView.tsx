@@ -34,9 +34,9 @@ export function OverviewView({
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
-          label="Fuentes monitoreadas"
-          value={num(kpis.storesMonitored)}
-          sub="operativas"
+          label="Criptos rastreadas"
+          value={num(kpis.productsTracked)}
+          sub="Top 10 en MXN"
           icon={StoreIcon}
           tone="brand"
         />
@@ -58,7 +58,7 @@ export function OverviewView({
         <KpiCard
           label={`Precio medio (${kpis.avgCurrency})`}
           value={money(kpis.avgPrice, kpis.avgCurrency)}
-          sub="Top cripto USD"
+          sub="Top cripto MXN"
           icon={DollarSign}
           tone="muted"
         />
@@ -66,7 +66,7 @@ export function OverviewView({
 
       <div className="grid gap-4 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <TrendChart trend={data.trend} stores={data.stores} />
+          <TrendChart />
         </div>
         <div className="space-y-4">
           <CrawlerStatus crawler={crawler} />

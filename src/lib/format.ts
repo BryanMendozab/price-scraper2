@@ -1,6 +1,6 @@
 const LOCALE = 'es-MX';
 
-export function money(value: number | null | undefined, currency = 'USD'): string {
+export function money(value: number | null | undefined, currency = 'MXN'): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '—';
   const maximumFractionDigits = value >= 1000 ? 0 : value < 1 ? 4 : 2;
   try {

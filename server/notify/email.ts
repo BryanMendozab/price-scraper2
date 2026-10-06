@@ -50,15 +50,22 @@ export function actionable(recs: Recommendation[]): Recommendation[] {
   return recs.filter((r) => r.verdict !== 'calma');
 }
 
+const HORIZON_ES: Record<UserProfile['horizon'], string> = {
+  scalper: 'scalper',
+  daily: 'diario',
+  swing: 'swing',
+  holder: 'holder',
+};
+
 export function buildProfileEmail(profile: UserProfile, recs: Recommendation[]): EmailContent {
   const items = actionable(recs);
-  const horizon = profile.horizon === 'daily' ? 'diario' : 'mensual';
-  const subject = `Cripto-alerta (${horizon}): ${items.length} movimiento(s) en ${profile.currency}`;
+  const horizon = HORIZON_ES[profile.horizon] ?? profile.horizon;
+  const subject = `Cripto-alerta (${horizon}): ${items.length} movimiento(s) en MXN`;
 
   const lines: string[] = [
     `Hola ${profile.name},`,
     '',
-    `Tu perfil ${horizon} en ${profile.currency} detectó ${items.length} movimiento(s) que vale la pena mirar:`,
+    `Tu perfil ${horizon} en MXN detectó ${items.length} movimiento(s) que vale la pena mirar:`,
     '',
   ];
   for (const r of items) {
@@ -83,7 +90,7 @@ export function buildProfileEmail(profile: UserProfile, recs: Recommendation[]):
     .join('\n');
 
   const html = `<div style="font-family:sans-serif;max-width:600px;">
-  <h2>Cripto-alerta · perfil ${escapeHtml(horizon)} (${escapeHtml(profile.currency)})</h2>
+  <h2>Cripto-alerta · perfil ${escapeHtml(horizon)} (MXN)</h2>
   <p>Hola ${escapeHtml(profile.name)}, estos movimientos pasaron tu umbral:</p>
   ${htmlRows}
   <p style="color:#888;font-size:12px;">${escapeHtml(RECOMMENDATION_DISCLAIMER)}</p>

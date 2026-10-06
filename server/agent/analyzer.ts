@@ -14,6 +14,7 @@ import type {
 } from '../../shared/types.ts';
 import { round2 } from '../utils.ts';
 import { SOURCES, sourceName } from '../sources/index.ts';
+import { COINS } from '../../shared/coins.ts';
 
 const DAY_MS = 86_400_000;
 const SEVERITY_WEIGHT: Record<Severity, number> = { high: 3, medium: 2, low: 1 };
@@ -240,12 +241,8 @@ export function buildStoreSummaries(
   });
 }
 
-/**
- * Moneda de referencia (Fase 1 solo-cripto).
- * El promedio y la tendencia se calculan solo en USD; MXN se monitorea
- * y genera alertas igual, pero no se mezcla en el promedio.
- */
-export const REFERENCE_CURRENCY = 'USD';
+/** Moneda de referencia: el proyecto cotiza solo en MXN. */
+export const REFERENCE_CURRENCY = 'MXN';
 
 export function computeKpis(
   summaries: StoreSummary[],
@@ -294,6 +291,36 @@ export function buildTrend(snapshots: Snapshot[], maxPoints = 30): TrendPoint[] 
   }
 
   return points.slice(-maxPoints);
+}
+
+/**
+ * Tendencia indexada base 100 por moneda (MXN).
+ * Cada moneda parte de 100 en su primer precio de la ventana: así se comparan
+ * variaciones % sin que el precio gigante de BTC aplaste a las demás.
+ * Ej: 101.5 = +1,5% desde el inicio; 98 = −2%.
+ */
+export function buildIndexedTrend(snapshots: Snapshot[], maxPoints = 30): TrendPoint[] {
+  const mine = snapshots.filter((s) => s.storeId === 'mercado').slice(-maxPoints);
+  if (mine.length === 0) return [];
+
+  const base = new Map<string, number>();
+  for (const snap of mine) {
+    for (const coin of COINS) {
+      if (base.has(coin.id)) continue;
+      const found = snap.products.find((p) => p.id === `mercado-${coin.id}-mxn`);
+      if (found && found.price > 0) base.set(coin.id, found.price);
+    }
+  }
+
+  return mine.map((snap) => {
+    const point: TrendPoint = { ts: snap.ts };
+    for (const coin of COINS) {
+      const b = base.get(coin.id);
+      const found = snap.products.find((p) => p.id === `mercado-${coin.id}-mxn`);
+      point[coin.id] = b && found && found.price > 0 ? round2((found.price / b) * 100) : null;
+    }
+    return point;
+  });
 }
 
 export function eventsByKind(events: PriceEvent[]): Record<EventKind, number> {
