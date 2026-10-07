@@ -1,0 +1,29 @@
+# Despliegue del backend en Render (el frontend va en Vercel).
+# En Render: New + → Blueprint → conecta el repo. Luego completa las variables.
+services:
+  - type: web
+    name: agente-precios-api
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run typecheck
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: CRAWL_INTERVAL_SECONDS
+        value: 30
+      - key: CRAWL_USER_AGENT
+        value: AgenteEscolarDemo/1.0 (proyecto escolar de monitoreo de precios)
+      - key: NOTIFY_PROVIDER
+        value: console
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: 587
+      - key: SMTP_SECURE
+        value: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: SMTP_FROM
+        sync: false

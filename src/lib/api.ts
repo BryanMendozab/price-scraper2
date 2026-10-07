@@ -31,8 +31,15 @@ export class ApiError extends Error {
 
 const emptyCoins = () => ({ coins: [] as Array<{ id: string; symbol: string; name: string }> });
 
+/**
+ * Base del backend en producción (Vercel solo sirve el frontend).
+ * Local: vacío (usa el proxy de Vite hacia :8787).
+ * Vercel: VITE_API_URL=https://tu-backend.onrender.com
+ */
+export const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}/api${path}`, {
     ...init,
     headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
   });

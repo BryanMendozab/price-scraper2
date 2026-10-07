@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { FileSpreadsheet, FileText, Mail, Send } from 'lucide-react';
 import type { Settings } from '../../../shared/types';
-import { api } from '../../lib/api';
+import { API_BASE, api } from '../../lib/api';
 import { Eyebrow, Panel, Spinner, Toggle } from '../ui';
 
 const PILOT_KIND_OPTIONS = [
@@ -78,10 +78,10 @@ export function ReportView() {
       <div>
         <Eyebrow>Exportar</Eyebrow>
         <Panel className="mt-2" bodyClass="flex flex-wrap items-center gap-3 px-5 py-4">
-          <a className="btn btn-primary" href="/api/export.xlsx">
+          <a className="btn btn-primary" href={`${API_BASE}/api/export.xlsx`}>
             <FileSpreadsheet size={14} /> Excel con lo importante
           </a>
-          <a className="btn" href="/api/export.csv">
+          <a className="btn" href={`${API_BASE}/api/export.csv`}>
             <FileText size={14} /> CSV de precios
           </a>
           <p className="w-full text-[11px] text-muted">

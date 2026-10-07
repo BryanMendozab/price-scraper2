@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Download, Search, X } from 'lucide-react';
-import { api, type ProductRow } from '../../lib/api';
+import { API_BASE, api, type ProductRow } from '../../lib/api';
 import { money, num } from '../../lib/format';
 import { DeltaPill, EmptyState, ErrorNote, Spinner, Sparkline } from '../ui';
 
@@ -90,7 +90,7 @@ export function ProductsView() {
 
         <span className="text-[12px] text-muted">{num(rows.length)} monedas</span>
 
-        <a className="btn btn-xs" href="/api/export.csv" download>
+        <a className="btn btn-xs" href={`${API_BASE}/api/export.csv`} download>
           <Download size={13} />
           CSV
         </a>
