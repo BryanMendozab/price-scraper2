@@ -27,6 +27,46 @@ regla exacta que la produjo. No hay caja negra.
 
 ---
 
+## 0. La idea que se presenta (demo de 5 minutos)
+
+Abrir el proyecto y que **ya haya cosas para mostrar, sin hacer clics ni crear nada**.
+Todo es automático: el piloto decide solo, con dinero ficticio, y la pantalla lo cuenta.
+
+1. **Piloto automático, no perfiles por crear** — cuatro clientes fijos (scalper, day
+   trader, swing, holder) con **$10.000 MXN cada uno**. Nadie configura nada en vivo:
+   al arrancar el servidor ya están sembrados y decidiendo.
+2. **Cada cliente mira su ventana de tiempo** — scalper y day trader las últimas 24 h,
+   swing los 7 días, holder los 30 días. Así, aunque en 5 minutos el mercado en vivo
+   no se mueva, el pasado trae señales distintas y los cuatro rara vez coinciden:
+   hay contraste que exponer (`invertir / acumular / esperar / evitar`).
+3. **Billeteras de clientes, no tags** — cada uno reparte su presupuesto por moneda
+   ($1.000 al invertir, $500 al acumular, tope $4.000) y se ve el desglose: en qué
+   monedas está, cuánto ganó o perdió en cada una, cuánto le queda libre y lo ya
+   realizado. Sin etiquetas de colores: el estado se lee en verbo + cifra.
+4. **Cada compra trae su plan de venta** — al abrir, el agente fija objetivo y stop
+   ("vende en $X (+6%) o corta en $Y (−2%)") y **los ejecuta solo**: vende por
+   objetivo cumplido, por stop o por señal perdida. Cada cliente además declara su
+   idea en una frase ("caza bajones del día…").
+5. **Gráfica larga con las acciones marcadas** — la tendencia base 100 cubre hasta
+   ~1 hora (rango cambiable: 15 min / 1 h / 3 h / todo) y pinta **C** donde compró y
+   **V** donde vendió el piloto.
+6. **Resumen pensado para proyectar** — ocupa todo lo ancho, sin headers
+   descriptivos: hero con el dinero en posiciones por cliente (cada uno con su
+   color), gráfica grande, carrusel con solo las 2–3 alertas importantes (rotan
+   solas; si no hay, muestra las señales del piloto) y la decisión del minuto.
+7. **Historial de decisiones con hace-cuánto** — pestaña aparte con cada compra y
+   venta (`hace 2 min`, `hace 1 h`), separada de Perfiles para que esa vista quede
+   ligera.
+8. **Persistencia real** — todo vive en `data/` (`db.json` + `history.json`,
+   ignorados por git): se apaga la laptop y mañana `npm start` sigue donde quedó,
+   billeteras y bitácora intactas, sin reenviar backlog.
+9. **Email sin spam** — digest del piloto a Gmail **solo con compras y ventas**,
+   agrupado y con cooldown (1 correo por hora aunque haya 5 operaciones). Sin
+   operaciones no hay correo. Se configura en Configuración o por `.env` con App
+   Password (nunca se commitea).
+
+---
+
 ## 2. Puesta en marcha
 
 Requisitos: **Node.js 20 o superior**.

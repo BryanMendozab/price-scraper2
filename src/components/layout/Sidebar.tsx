@@ -2,7 +2,7 @@ import clsx from 'clsx';
 import {
   BellRing,
   Boxes,
-  FlaskConical,
+  History,
   LayoutDashboard,
   Radio,
   Send,
@@ -16,20 +16,10 @@ const ICONS: Record<TabId, typeof LayoutDashboard> = {
   resumen: LayoutDashboard,
   productos: Boxes,
   perfiles: Users,
-  simulador: FlaskConical,
+  historial: History,
   alertas: BellRing,
   reporte: Send,
   config: Settings2,
-};
-
-const SUBTITLE: Record<TabId, string> = {
-  resumen: 'Estado general del mercado y actividad del agente',
-  productos: 'Precios actuales y variaciÃ³n contra la corrida anterior',
-  perfiles: 'Elige tu estilo de trader y mira las decisiones ya calculadas',
-  simulador: '¿Y si hubieras comprado o vendido en otra fecha?',
-  alertas: 'Historial completo de cambios detectados',
-  reporte: 'GeneraciÃ³n y entrega del reporte diario',
-  config: 'Intervalos, umbrales y canal de notificaciÃ³n',
 };
 
 export function Sidebar({
@@ -78,11 +68,11 @@ export function Sidebar({
         })}
       </nav>
 
-      <div className="space-y-2 px-4 py-3">
+      {/* <div className="space-y-2 px-4 py-3">
         <p className="text-[10px] leading-relaxed text-dim">
           Miniproyecto escolar. Vite + React + Tailwind con un agente de scraping en Node.
         </p>
-      </div>
+      </div> */}
     </aside>
   );
 }
@@ -110,4 +100,3 @@ export function MobileNav({ tab, onChange }: { tab: TabId; onChange: (tab: TabId
   );
 }
 
-export { SUBTITLE };

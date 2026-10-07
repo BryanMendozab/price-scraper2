@@ -2,15 +2,15 @@ import { Router } from 'express';
 import type {
   DashboardData,
   ProductRow,
-  Settings,
   StoreId,
   TrendPoint,
 } from '../shared/types.ts';
-import { getDb, updateSettings, clearHistory, createProfile, updateProfile, deleteProfile, setProfileAlerts } from './store.ts';
+import { getDb, updateSettings, clearHistory } from './store.ts';
 import { buildRecommendations } from './profiles/recommend.ts';
-import { TRADERS, isTraderHorizon, traderMeta } from '../shared/traders.ts';
-import { evaluateScenario, rankDay, SIM_DISCLAIMER } from './sim/evaluate.ts';
-import { actionable, buildProfileEmail, emailReady, resolveEmailConfig, sendMail } from './notify/email.ts';
+import { TRADERS, PILOT_BUDGET_MXN, isTraderHorizon, traderMeta } from '../shared/traders.ts';
+import { runAutopilot } from './sim/autopilot.ts';
+import { historyStatus } from './sim/history.ts';
+import { actionable, buildPilotDigestEmail, buildProfileEmail, emailReady, resolveEmailConfig, sendMail } from './notify/email.ts';
 import { COINS } from '../shared/coins.ts';
 import { config } from './config.ts';
 import { testSource } from './agent/index.ts';
@@ -22,8 +22,7 @@ import {
   eventsByKind,
   latestSnapshot,
 } from './agent/analyzer.ts';
-import { buildReport, renderPayload, resolveWebhook } from './report/build.ts';
-import { dispatchReport } from './report/send.ts';
+import { buildExcel } from './report/excel.ts';
 import { getCrawlerState, restartScheduler, runNow } from './scheduler.ts';
 import { SOURCES } from './sources/index.ts';
 import { round2, truncate } from './utils.ts';
@@ -63,6 +62,16 @@ api.get('/dashboard', (_req, res) => {
     .filter((e) => e.deltaPct !== null && (e.kind === 'price_up' || e.kind === 'price_down'))
     .sort((a, b) => (b.deltaPct ?? 0) - (a.deltaPct ?? 0));
 
+  // Solo lo importante para el carrusel del Resumen: precio medium/high, lo más nuevo primero.
+  const highlights = events
+    .filter(
+      (e) =>
+        (e.kind === 'price_up' || e.kind === 'price_down') &&
+        (e.severity === 'high' || e.severity === 'medium'),
+    )
+    .slice(-12)
+    .reverse();
+
   const data: DashboardData = {
     generatedAt: new Date().toISOString(),
     kpis: computeKpis(summaries, events, lastRunAt()),
@@ -77,6 +86,19 @@ api.get('/dashboard', (_req, res) => {
     eventsByKind: eventsByKind(events),
     crawler: getCrawlerState(),
     settings: db.settings,
+    pilot:
+      db.decisions.length > 0
+        ? {
+            generatedAt: new Date().toISOString(),
+            budgetMxn: PILOT_BUDGET_MXN,
+            decisions: db.decisions,
+            wallets: db.wallets,
+            recentTrades: db.trades.slice(-12).reverse(),
+            investingCount: db.decisions.filter((d) => d.action === 'invertir' || d.action === 'acumular')
+              .length,
+          }
+        : null,
+    highlights,
   };
 
   res.json(data);
@@ -209,41 +231,6 @@ api.post('/scrape/run', async (_req, res) => {
   });
 });
 
-/* --------------------------------- Reporte -------------------------------- */
-
-api.get('/reports', (_req, res) => {
-  res.json({ reports: [...getDb().reports].reverse().slice(0, 20) });
-});
-
-api.get('/reports/preview', (req, res) => {
-  const provider =
-    (req.query.provider as Settings['notify']['provider']) || getDb().settings.notify.provider;
-  // Reporte en memoria, sin guardarlo: se puede previsualizar las veces que haga falta.
-  const report = buildReport({ persist: false });
-  res.json({
-    provider,
-    report,
-    payload: renderPayload(report, provider),
-    webhookConfigured: Boolean(resolveWebhook(provider)),
-  });
-});
-
-api.post('/reports/generate', (_req, res) => {
-  const report = buildReport();
-  res.json({ report });
-});
-
-api.post('/reports/send', async (req, res) => {
-  const db = getDb();
-  const provider = (req.body?.provider as Settings['notify']['provider']) || db.settings.notify.provider;
-  const existing = req.body?.reportId
-    ? db.reports.find((r) => r.id === req.body.reportId)
-    : undefined;
-  const report = existing ?? buildReport();
-  const result = await dispatchReport(report, provider);
-  res.status(result.ok ? 200 : 502).json(result);
-});
-
 /* --------------------------- Selector de trader --------------------------- */
 
 /**
@@ -282,6 +269,7 @@ api.get('/traders/:horizon/recommendations', (req, res) => {
 });
 
 /* -------------------------------- Perfiles -------------------------------- */
+/* Demo fija: los 4 traders siempre existen, sin crear ni borrar desde la UI. */
 
 api.get('/coins', (_req, res) => {
   res.json({ coins: COINS });
@@ -291,36 +279,22 @@ api.get('/profiles', (_req, res) => {
   res.json({ profiles: getDb().profiles });
 });
 
-api.post('/profiles', (req, res) => {
-  try {
-    const profile = createProfile(req.body ?? {});
-    res.status(201).json({ profile });
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos inválidos' });
-  }
+api.post('/profiles', (_req, res) => {
+  res.status(410).json({ error: 'Demo fija: los 4 traders ya existen, no se crean perfiles.' });
 });
 
-api.put('/profiles/:id', (req, res) => {
-  try {
-    const profile = updateProfile(req.params.id, req.body ?? {});
-    res.json({ profile });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : 'Datos inválidos';
-    res.status(msg === 'Perfil no encontrado.' ? 404 : 400).json({ error: msg });
-  }
+api.put('/profiles/:id', (_req, res) => {
+  res.status(410).json({ error: 'Demo fija: los perfiles no se editan.' });
 });
 
-api.delete('/profiles/:id', (req, res) => {
-  try {
-    deleteProfile(req.params.id);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(404).json({ error: err instanceof Error ? err.message : 'No encontrado' });
-  }
+api.delete('/profiles/:id', (_req, res) => {
+  res.status(410).json({ error: 'Demo fija: los perfiles no se eliminan.' });
 });
 
 api.get('/profiles/:id/recommendations', (req, res) => {
-  const profile = getDb().profiles.find((p) => p.id === req.params.id);
+  const profile =
+    getDb().profiles.find((p) => p.id === req.params.id) ??
+    getDb().profiles.find((p) => p.horizon === req.params.id);
   if (!profile) {
     res.status(404).json({ error: 'Perfil no encontrado.' });
     return;
@@ -328,17 +302,44 @@ api.get('/profiles/:id/recommendations', (req, res) => {
   res.json(buildRecommendations(profile));
 });
 
-api.patch('/profiles/:id/alerts', (req, res) => {
+api.patch('/profiles/:id/alerts', (_req, res) => {
+  res.status(410).json({ error: 'Demo fija: alertas por email desactivadas para los traders demo.' });
+});
+
+/* --------------------------------- Piloto --------------------------------- */
+/* Decisiones automáticas con $10k fijos: perfiles + simulación trabajando juntos. */
+
+api.get('/pilot/summary', (_req, res) => {
   try {
-    const enabled = (req.body as { enabled?: unknown })?.enabled;
-    if (typeof enabled !== 'boolean') {
-      res.status(400).json({ error: "Body: { enabled: boolean }." });
-      return;
-    }
-    res.json({ profile: setProfileAlerts(req.params.id, enabled) });
+    const summary = runAutopilot();
+    res.json({ ...summary, disclaimer: 'Contenido educativo: no es asesoría financiera.' });
   } catch (err) {
-    res.status(404).json({ error: err instanceof Error ? err.message : 'No encontrado' });
+    res.status(500).json({ error: err instanceof Error ? err.message : 'No se pudo decidir' });
   }
+});
+
+api.get('/pilot/decisions', (_req, res) => {
+  const db = getDb();
+  res.json({
+    generatedAt: new Date().toISOString(),
+    budgetMxn: PILOT_BUDGET_MXN,
+    decisions: db.decisions,
+    wallets: db.wallets,
+    recentTrades: db.trades.slice(-12).reverse(),
+    investingCount: db.decisions.filter((d) => d.action === 'invertir' || d.action === 'acumular').length,
+  });
+});
+
+/** Historial de decisiones del piloto (compras y ventas), lo más reciente primero. */
+api.get('/pilot/trades', (req, res) => {
+  const db = getDb();
+  const raw = Number((req.query as Record<string, string>).limit);
+  const limit = Number.isFinite(raw) ? Math.min(200, Math.max(1, Math.round(raw))) : 60;
+  res.json({ trades: [...db.trades].reverse().slice(0, limit), total: db.trades.length });
+});
+
+api.get('/history/status', (_req, res) => {
+  res.json(historyStatus());
 });
 
 /* --------------------------- Alertas por email ---------------------------- */
@@ -353,6 +354,16 @@ api.get('/notify/email/status', (_req, res) => {
     user: cfg.user ? `${cfg.user.slice(0, 3)}…` : '',
     from: cfg.from,
   });
+});
+
+/** Vista previa del digest del piloto: no envía nada, no necesita SMTP. */
+api.get('/notify/email/pilot-preview', (_req, res) => {
+  const trades = getDb().trades.slice(-5).reverse();
+  if (trades.length === 0) {
+    res.json({ to: getDb().settings.notify.email.pilotRecipient, empty: true, email: null });
+    return;
+  }
+  res.json({ to: getDb().settings.notify.email.pilotRecipient, empty: false, email: buildPilotDigestEmail(trades) });
 });
 
 /** Vista previa del correo de un perfil: no envía nada, no necesita SMTP. */
@@ -398,31 +409,6 @@ api.post('/notify/email/test', async (req, res) => {
   }
 });
 
-/* -------------------------------- Simulador ------------------------------- */
-
-api.get('/sim/evaluate', async (req, res) => {
-  try {
-    const result = await evaluateScenario({
-      coinId: req.query.coin,
-      date: req.query.date,
-      side: req.query.side,
-      amount: req.query.amount,
-    });
-    res.json({ result, disclaimer: SIM_DISCLAIMER });
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos inválidos' });
-  }
-});
-
-api.get('/sim/ranking', async (req, res) => {
-  try {
-    const { results, failed, disclaimer } = await rankDay(req.query.date, req.query.amount);
-    res.json({ results, failed, disclaimer });
-  } catch (err) {
-    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos inválidos' });
-  }
-});
-
 /* ------------------------------ Configuración ----------------------------- */
 
 api.get('/settings', (_req, res) => {
@@ -444,7 +430,7 @@ api.post('/data/clear', async (_req, res) => {
   res.json({ ok: true });
 });
 
-/* ---------------------------------- CSV ----------------------------------- */
+/* --------------------------------- Exportar --------------------------------- */
 
 api.get('/export.csv', (_req, res) => {
   const rows = buildProductRows();
@@ -480,6 +466,21 @@ api.get('/export.csv', (_req, res) => {
   res.send(lines.join('\n'));
 });
 
+/** Excel con lo más importante: billeteras, operaciones y alertas relevantes. */
+api.get('/export.xlsx', async (_req, res) => {
+  try {
+    const buffer = await buildExcel();
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    res.setHeader('Content-Disposition', 'attachment; filename="reporte-piloto.xlsx"');
+    res.send(buffer);
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'No se pudo generar el Excel' });
+  }
+});
+
 /* ------------------------------ Trend crudo ------------------------------- */
 
 api.get('/trend', (_req, res) => {
@@ -488,7 +489,23 @@ api.get('/trend', (_req, res) => {
 });
 
 /** Tendencia indexada base 100 por moneda: ideal para graficar sin que BTC aplaste la escala. */
-api.get('/trend/indexed', (_req, res) => {
-  const points = buildIndexedTrend(getDb().snapshots);
-  res.json({ coins: COINS, points, total: points.length });
+api.get('/trend/indexed', (req, res) => {
+  const db = getDb();
+  const wanted = Number((req.query as Record<string, string>).points);
+  const maxPoints = Number.isFinite(wanted) ? Math.min(600, Math.max(10, Math.round(wanted))) : 120;
+  const points = buildIndexedTrend(db.snapshots, maxPoints);
+  const from = points.length > 0 ? Date.parse(points[0].ts) : 0;
+  // Solo operaciones dentro de la ventana visible (máx 20, las más recientes).
+  const markers = db.trades
+    .filter((t) => Date.parse(t.at) >= from)
+    .slice(-20)
+    .map((t) => ({
+      at: t.at,
+      coinId: t.coinId,
+      symbol: t.symbol,
+      side: t.side,
+      horizon: t.horizon,
+      note: t.note,
+    }));
+  res.json({ coins: COINS, points, total: points.length, markers });
 });

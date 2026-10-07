@@ -78,7 +78,7 @@ export interface PriceEvent {
   currency: string;
 }
 
-export type NotifyProvider = 'none' | 'console' | 'slack' | 'teams';
+/* ------------------------------ Notificaciones ----------------------------- */
 
 export interface Thresholds {
   /** Variacion minima (%) para considerar un cambio de precio relevante. */
@@ -101,19 +101,20 @@ export interface EmailSettings {
   from: string;
   /** Minutos mínimos entre dos emails al mismo perfil (antispam). */
   cooldownMinutes: number;
+  /** Digest del piloto: solo compras y ventas, nada de ruido. */
+  pilotEnabled: boolean;
+  /** A dónde llega el digest del piloto (un solo correo). */
+  pilotRecipient: string;
+  /** Qué operaciones mandan correo. Todo lo demás solo se ve en pantalla. */
+  pilotKinds: {
+    buys: boolean;
+    target: boolean;
+    stop: boolean;
+    signal: boolean;
+  };
 }
 
 export interface NotifySettings {
-  provider: NotifyProvider;
-  slackWebhook: string;
-  teamsWebhook: string;
-  /** Si es true, no se manda nada cuando la corrida no detecta eventos. */
-  onlyOnEvents: boolean;
-  /** Envia un reporte en el momento en que se detectan cambios, no solo a diario. */
-  alertOnChange: boolean;
-  /** Hora local del reporte automatico diario (0-23). */
-  dailyReportHour: number;
-  dailyReportMinute: number;
   email: EmailSettings;
 }
 
@@ -122,39 +123,6 @@ export interface Settings {
   intervalSeconds: number;
   thresholds: Thresholds;
   notify: NotifySettings;
-}
-
-export interface ReportStats {
-  storesMonitored: number;
-  productsTracked: number;
-  avgPrice: number | null;
-  /** Moneda del promedio: solo se promedian tiendas comparables. */
-  avgCurrency: string;
-  eventsTotal: number;
-  priceUps: number;
-  priceDowns: number;
-  stockouts: number;
-  bestStoreId: StoreId | null;
-  bestStoreName: string | null;
-  biggestDropPct: number | null;
-  biggestRisePct: number | null;
-}
-
-export interface Report {
-  id: string;
-  ts: string;
-  summary: string[];
-  insights: string[];
-  stats: ReportStats;
-  events: PriceEvent[];
-  provider: NotifyProvider;
-  /** Texto plano tal cual se envia. */
-  text: string;
-  /** Bloques de Slack, cuando el proveedor es slack. */
-  blocks: unknown[] | null;
-  sentAt: string | null;
-  sentOk: boolean | null;
-  sendError: string | null;
 }
 
 export type RunTrigger = 'startup' | 'schedule' | 'manual';
@@ -184,10 +152,15 @@ export interface Db {
   settings: Settings;
   snapshots: Snapshot[];
   events: PriceEvent[];
-  reports: Report[];
   runs: RunRecord[];
   sourceStatus: Partial<Record<StoreId, SourceStatus>>;
   profiles: UserProfile[];
+  /** Última decisión del piloto por horizonte (máx 4). Se recalcula sola cada corrida. */
+  decisions: AutoDecision[];
+  /** Billeteras de los 4 clientes (máx 4). Persisten entre corridas. */
+  wallets: PilotWallet[];
+  /** Bitácora de operaciones del piloto (se poda a 200). */
+  trades: TradeLogEntry[];
 }
 
 /* ------------------------------- Perfiles ------------------------------- */
@@ -233,6 +206,106 @@ export interface Recommendation {
 
 /* ---------------------------------- API ---------------------------------- */
 
+/** Decisión automática del piloto para un horizonte. Una por trader, se pisa cada corrida.
+ * 4 estados para que la demo siempre tenga contraste: aunque el día esté plano,
+ * cada horizonte mira una ventana distinta (24h / 7d / 30d) y reacciona diferente. */
+export type AutoAction = 'invertir' | 'acumular' | 'esperar' | 'evitar';
+
+export interface AutoDecision {
+  horizon: UserHorizon;
+  action: AutoAction;
+  /** Moneda que disparó la decisión (la señal más fuerte). */
+  coinId: string;
+  symbol: string;
+  name: string;
+  /** Monto simulado en MXN (fracción fija del presupuesto). 0 si no se invierte. */
+  amountMxn: number;
+  priceAt: number | null;
+  valueNow: number | null;
+  pnlMxn: number | null;
+  pnlPct: number | null;
+  /** Frase corta y explicable para la demo (<= 140 chars). */
+  reason: string;
+  at: string;
+}
+
+export interface PilotSummary {
+  generatedAt: string;
+  budgetMxn: number;
+  decisions: AutoDecision[];
+  /** Billetera de cada cliente: cómo repartió su presupuesto por moneda. */
+  wallets: PilotWallet[];
+  /** Últimas operaciones (compras y ventas) para la gráfica y Perfiles. */
+  recentTrades: TradeLogEntry[];
+  /** Cuántos traders están en invertir ahora mismo. */
+  investingCount: number;
+}
+
+/** Plan de salida de una posición: el agente lo ejecuta solo. */
+export interface PositionPlan {
+  /** % de ganancia al que vende (take-profit). */
+  takeProfitPct: number;
+  /** % de pérdida al que corta (stop-loss). */
+  stopLossPct: number;
+  takeProfitPrice: number;
+  stopPrice: number;
+  /** Frase lista para mostrar: "Vende en $X (+6%) o corta en $Y (−2%)". */
+  text: string;
+}
+
+/** Una posición abierta en la billetera de un cliente. */
+export interface WalletPosition {
+  coinId: string;
+  symbol: string;
+  name: string;
+  /** Monto de entrada en MXN (fijo: 1000 invertir, 500 acumular). */
+  amountMxn: number;
+  /** Precio de entrada (se conserva mientras la posición siga abierta). */
+  priceAt: number;
+  valueNowMxn: number;
+  pnlMxn: number;
+  pnlPct: number;
+  plan: PositionPlan;
+  openedAt: string;
+}
+
+/** Una operación ejecutada por el piloto (apertura o cierre). */
+export interface TradeLogEntry {
+  id: string;
+  at: string;
+  horizon: UserHorizon;
+  side: 'compra' | 'venta';
+  coinId: string;
+  symbol: string;
+  amountMxn: number;
+  priceMxn: number;
+  pnlPct: number | null;
+  /** Por qué se operó: apertura, objetivo cumplido, stop o señal perdida. */
+  note: string;
+}
+
+/** Billetera de un cliente: presupuesto repartido en posiciones por moneda. */
+export interface PilotWallet {
+  horizon: UserHorizon;
+  budgetMxn: number;
+  /** Suma de entradas abiertas. */
+  investedMxn: number;
+  /** Efectivo disponible (incluye lo realizado al cerrar). */
+  cashMxn: number;
+  /** cash + valor actual de posiciones. */
+  valueNowMxn: number;
+  pnlMxn: number;
+  pnlPct: number;
+  /** Ganancia/pérdida ya realizada al cerrar posiciones. */
+  realizedMxn: number;
+  positions: WalletPosition[];
+  /** Enfriamiento por moneda (coinId → ISO hasta cuando no reabrir): evita comprar-vender en bucle. */
+  cooldowns: Record<string, string>;
+  /** Último cierre, para narrar decisiones ("vendió SOL +3,1%"). */
+  lastExit: string | null;
+  at: string;
+}
+
 export interface StoreSummary {
   id: StoreId;
   name: string;
@@ -271,6 +344,16 @@ export interface TrendPoint {
   [storeId: string]: string | number | null;
 }
 
+/** Marca de compra/venta del piloto para pintar sobre la gráfica. */
+export interface TrendMarker {
+  at: string;
+  coinId: string;
+  symbol: string;
+  side: 'compra' | 'venta';
+  horizon: UserHorizon;
+  note: string;
+}
+
 export interface ProductRow {
   storeId: StoreId;
   storeName: string;
@@ -303,6 +386,10 @@ export interface DashboardData {
   eventsByKind: Record<EventKind, number>;
   crawler: CrawlerState;
   settings: Settings;
+  /** Piloto automático: decisiones actuales con $10k fijos. */
+  pilot: PilotSummary | null;
+  /** Solo alertas importantes (medium/high de precio) para el carrusel del Resumen. */
+  highlights: PriceEvent[];
 }
 
 export interface EmailContent {

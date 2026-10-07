@@ -298,8 +298,9 @@ export function buildTrend(snapshots: Snapshot[], maxPoints = 30): TrendPoint[] 
  * Cada moneda parte de 100 en su primer precio de la ventana: así se comparan
  * variaciones % sin que el precio gigante de BTC aplaste a las demás.
  * Ej: 101.5 = +1,5% desde el inicio; 98 = −2%.
+ * Ventana larga (120 corridas ≈ 1 h a 30 s) para ver de dónde viene el mercado.
  */
-export function buildIndexedTrend(snapshots: Snapshot[], maxPoints = 30): TrendPoint[] {
+export function buildIndexedTrend(snapshots: Snapshot[], maxPoints = 120): TrendPoint[] {
   const mine = snapshots.filter((s) => s.storeId === 'mercado').slice(-maxPoints);
   if (mine.length === 0) return [];
 

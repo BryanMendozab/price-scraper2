@@ -1,160 +1,110 @@
 import { useCallback, useEffect, useState } from 'react';
-import { MousePointerClick, Zap } from 'lucide-react';
-import type { Recommendation, UserHorizon } from '../../../shared/types';
+import type { PilotWallet } from '../../../shared/types';
 import type { TraderMeta } from '../../../shared/traders';
 import { api } from '../../lib/api';
 import { money, pct } from '../../lib/format';
-import { Chip, EmptyState, ErrorNote, Panel, Spinner } from '../ui';
+import { EmptyState, ErrorNote, Eyebrow, HORIZON_HUE, Panel, Spinner } from '../ui';
 
-const VERDICT_TONE: Record<Recommendation['verdict'], 'neutral' | 'warn' | 'up' | 'down'> = {
-  calma: 'neutral',
-  atencion: 'warn',
-  oportunidad: 'down',
-  riesgo: 'up',
-};
+function WalletCard({ trader, wallet }: { trader: TraderMeta; wallet?: PilotWallet }) {
+  const hue = HORIZON_HUE[trader.horizon];
+  return (
+    <div className="relative overflow-hidden rounded-xl bg-surface p-5">
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-[2px]" style={{ background: hue }} />
+      <div className="flex items-baseline gap-3">
+        <p className="font-display text-[17px] font-semibold tracking-tight" style={{ color: hue }}>
+          {trader.label}
+        </p>
+        {wallet && (
+          <p className="display-num ml-auto text-[22px] leading-none">
+            {money(wallet.pnlMxn, 'MXN')}
+          </p>
+        )}
+      </div>
+      <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted">
+        {wallet
+          ? `${money(wallet.valueNowMxn, 'MXN')} de ${money(wallet.budgetMxn, 'MXN')} · ${money(wallet.investedMxn, 'MXN')} en ${wallet.positions.length}`
+          : trader.tagline}
+      </p>
+      <p className="mt-1.5 text-[12px] italic leading-relaxed text-muted">
+        {trader.thesis}
+      </p>
 
-const VERDICT_LABEL: Record<Recommendation['verdict'], string> = {
-  calma: 'Calma',
-  atencion: 'Atención',
-  oportunidad: 'Oportunidad',
-  riesgo: 'Riesgo',
-};
-
-interface TraderRecs {
-  trader: TraderMeta;
-  recommendations: Recommendation[];
-  counts: Record<string, number>;
-  disclaimer: string;
+      {wallet && wallet.positions.length > 0 && (
+        <div className="mt-3 border-t border-line-soft pt-1">
+          {wallet.positions.map((p) => (
+            <div key={p.coinId} className="border-b border-line-soft/60 py-2 last:border-0">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[13px] font-semibold">{p.symbol}</span>
+                <span className="font-mono text-[11px] tabular-nums text-muted">
+                  {money(p.amountMxn, 'MXN')} → {money(p.valueNowMxn, 'MXN')}
+                </span>
+                <span className="ml-auto font-mono text-[11px] tabular-nums">
+                  {money(p.pnlMxn, 'MXN')} ({pct(p.pnlPct)})
+                </span>
+              </div>
+              <p className="mt-0.5 font-mono text-[10px] tabular-nums text-dim">
+                {p.plan.text}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function ProfilesView() {
   const [traders, setTraders] = useState<TraderMeta[]>([]);
-  const [selected, setSelected] = useState<UserHorizon>('daily');
-  const [data, setData] = useState<TraderRecs | null>(null);
+  const [wallets, setWallets] = useState<PilotWallet[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingRecs, setLoadingRecs] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void api
-      .traders()
-      .then((d) => {
-        setTraders(d.traders);
-        setError(null);
-      })
-      .catch(() => setError('No se pudieron cargar los estilos de trader.'))
-      .finally(() => setLoading(false));
-  }, []);
-
-  const loadRecs = useCallback(async (horizon: UserHorizon) => {
-    setLoadingRecs(true);
+  const load = useCallback(async () => {
+    setLoading(true);
     try {
-      setData(await api.traderRecommendations(horizon));
+      const [t, p] = await Promise.all([api.traders(), api.pilotSummary()]);
+      setTraders(t.traders);
+      setWallets(p.wallets ?? []);
       setError(null);
     } catch {
-      setData(null);
-      setError('No se pudieron calcular las recomendaciones.');
+      setError('No se pudo cargar el piloto.');
     } finally {
-      setLoadingRecs(false);
+      setLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    void loadRecs(selected);
-  }, [selected, loadRecs]);
+    void load();
+  }, [load]);
 
-  if (loading) return <Spinner label="Cargando estilos…" />;
+  if (loading && wallets.length === 0) return <Spinner label="El piloto está decidiendo…" />;
 
-  const counts = data?.counts;
-  const summary =
-    counts != null
-      ? [
-          counts.calma > 0 && `${counts.calma} en calma`,
-          counts.atencion > 0 && `${counts.atencion} en atención`,
-          counts.oportunidad > 0 && `${counts.oportunidad} oportunidad`,
-          counts.riesgo > 0 && `${counts.riesgo} en riesgo`,
-        ]
-          .filter(Boolean)
-          .join(' · ') || 'Sin datos aún'
-      : '';
+  const walletBy = new Map(wallets.map((w) => [w.horizon, w]));
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {error && <ErrorNote message={error} />}
 
-      <Panel
-        title="¿Qué tipo de trader eres?"
-        subtitle="Elige tu estilo y mira las decisiones ya calculadas para hoy"
-      >
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {traders.map((t) => {
-            const active = selected === t.horizon;
-            return (
-              <button
-                key={t.horizon}
-                type="button"
-                onClick={() => setSelected(t.horizon)}
-                className={`rounded-lg border p-3 text-left transition-colors ${
-                  active
-                    ? 'border-brand/60 bg-brand/10'
-                    : 'border-line-soft bg-canvas hover:border-brand/40'
-                }`}
-              >
-                <p className="flex items-center gap-1.5 text-[13px] font-semibold">
-                  {active ? <Zap size={13} className="text-brand" /> : <MousePointerClick size={13} className="text-dim" />}
-                  {t.label}
-                </p>
-                <p className="mt-1 text-[11px] leading-relaxed text-muted">{t.tagline}</p>
-                <p className="mt-2">
-                  <Chip tone={active ? 'brand' : 'neutral'}>{t.sensitivity}</Chip>
-                </p>
-                <p className="mt-1.5 text-[10px] italic text-dim">{t.example}</p>
-              </button>
-            );
-          })}
-        </div>
-      </Panel>
-
-      <Panel
-        title={data ? `Decisiones para ${data.trader.label}` : 'Decisiones'}
-        subtitle={summary || undefined}
-        action={
-          <button className="btn btn-xs" onClick={() => void loadRecs(selected)}>
+      <Eyebrow
+        right={
+          <button className="text-[10px] font-semibold uppercase tracking-[0.18em] text-brand hover:text-ink" onClick={() => void load()}>
             Actualizar
           </button>
         }
       >
-        {loadingRecs ? (
-          <Spinner />
-        ) : !data || data.recommendations.length === 0 ? (
-          <EmptyState message="Sin recomendaciones." hint="Ejecuta un scraping para tener precios." />
-        ) : (
-          <div className="space-y-3">
-            {data.recommendations.map((r) => (
-              <div key={r.coinId} className="rounded-lg border border-line-soft p-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[13px] font-semibold">{r.headline}</span>
-                  <Chip tone={VERDICT_TONE[r.verdict]}>{VERDICT_LABEL[r.verdict]}</Chip>
-                  <span className="ml-auto font-mono text-[13px]">
-                    {money(r.price, r.currency)}
-                  </span>
-                </div>
-                <p className="mt-1 text-[12px] text-muted">{r.explanation}</p>
-                <p className="mt-1 text-[12px]">
-                  <span className="font-medium">Decisión sugerida: </span>
-                  {r.suggestion}
-                </p>
-                <p className="mt-1 font-mono text-[10px] text-dim">
-                  24h: {r.change24hPct !== null ? pct(r.change24hPct) : '—'}
-                  {' · '}últimas corridas:{' '}
-                  {r.changeRunPct !== null ? pct(r.changeRunPct) : '—'}
-                </p>
-              </div>
-            ))}
-            {data.disclaimer && <p className="text-[10px] text-dim">{data.disclaimer}</p>}
-          </div>
-        )}
-      </Panel>
+        Billeteras · $10.000 por cliente
+      </Eyebrow>
+      {traders.length === 0 ? (
+        <Panel bodyClass="">
+          <EmptyState message="Sin traders." hint="El servidor siembra los 4 al arrancar." />
+        </Panel>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {traders.map((t) => (
+            <WalletCard key={t.horizon} trader={t} wallet={walletBy.get(t.horizon)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

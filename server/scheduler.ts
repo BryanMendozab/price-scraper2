@@ -1,10 +1,10 @@
 import type { CrawlerState, RunTrigger } from '../shared/types.ts';
 import { runCycle, type CycleResult } from './agent/index.ts';
 import { getDb } from './store.ts';
-import { buildReport } from './report/build.ts';
-import { dispatchReport } from './report/send.ts';
 import { buildRecommendations } from './profiles/recommend.ts';
-import { actionable, emailReady, sendProfileAlert } from './notify/email.ts';
+import { actionable, buildPilotDigestEmail, emailReady, sendMail, sendProfileAlert } from './notify/email.ts';
+import { runAutopilot } from './sim/autopilot.ts';
+import { backfillNext } from './sim/history.ts';
 
 const MIN_INTERVAL_SECONDS = 5;
 
@@ -12,12 +12,6 @@ let timer: NodeJS.Timeout | null = null;
 let running = false;
 let lastRunAt: string | null = null;
 let nextRunAt: string | null = null;
-/** Clave del reporte diario ya enviado, para no repetirlo cada 30 segundos. */
-let lastDailyKey: string | null = null;
-
-function localMinuteKey(date = new Date()): string {
-  return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()} ${date.getHours()}:${date.getMinutes()}`;
-}
 
 export function getCrawlerState(): CrawlerState {
   const db = getDb();
@@ -45,37 +39,73 @@ export async function runNow(trigger: RunTrigger): Promise<CycleResult | { skipp
   }
 }
 
-/** Revisa si toca el reporte diario y, si el agente esta configurado para avisar al instante, envia. */
-async function maybeNotify(result: CycleResult, trigger: RunTrigger): Promise<void> {
-  const { notify } = getDb().settings;
-  if (notify.provider === 'none') return;
-
-  const hasEvents = result.newEvents.length > 0;
-
-  if (notify.alertOnChange && hasEvents && trigger !== 'startup') {
-    const report = buildReport();
-    const sent = await dispatchReport(report, notify.provider);
-    if (!sent.ok) console.warn(`[notify] no se pudo enviar: ${sent.error}`);
-  }
-
-  const now = new Date();
-  const key = localMinuteKey(now);
-  const due =
-    now.getHours() === notify.dailyReportHour && now.getMinutes() === notify.dailyReportMinute;
-  if (due && lastDailyKey !== key) {
-    lastDailyKey = key;
-    if (notify.onlyOnEvents && !hasEvents) {
-      console.log('[notify] sin eventos en la corrida: se omite el reporte diario.');
-      return;
-    }
-    const report = buildReport();
-    const sent = await dispatchReport(report, notify.provider);
-    if (!sent.ok) console.warn(`[notify] reporte diario no entregado: ${sent.error}`);
-  }
-}
-
 /** Antispam: último envío por perfil (en memoria, se reinicia con el servidor). */
 const lastProfileAlert = new Map<string, number>();
+
+/** Digest del piloto: última operación ya notificada y último envío (en memoria). */
+let lastPilotTradeId: string | null = null;
+let lastPilotEmailAt = 0;
+let pilotBootstrapped = false;
+
+/**
+ * Digest del piloto por email: solo compras y ventas reales, agrupadas y con
+ * cooldown. Al arrancar se marca lo ya visto (sin reenviar el backlog), así
+ * apagar la laptop y volver mañana no genera spam.
+ */
+async function maybeNotifyPilot(): Promise<void> {
+  const { notify } = getDb().settings;
+  const email = notify.email;
+  const trades = getDb().trades;
+  if (!pilotBootstrapped) {
+    // No reenviar historia vieja al reiniciar: solo lo nuevo a partir de aquí.
+    lastPilotTradeId = trades.at(-1)?.id ?? null;
+    pilotBootstrapped = true;
+  }
+  if (!email.pilotEnabled) return;
+  if (!emailReady()) return;
+  const to = email.pilotRecipient.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return;
+
+  const seenIdx = lastPilotTradeId ? trades.findIndex((t) => t.id === lastPilotTradeId) : -2;
+  const pending = seenIdx >= 0 ? trades.slice(seenIdx + 1) : trades;
+  if (pending.length === 0) {
+    lastPilotTradeId = trades.at(-1)?.id ?? lastPilotTradeId;
+    return;
+  }
+
+  // Filtro anti-spam: solo los tipos activados en Configuración.
+  const kinds = email.pilotKinds;
+  const mailable = pending.filter((t) =>
+    t.side === 'compra'
+      ? kinds.buys
+      : t.note === 'objetivo'
+        ? kinds.target
+        : t.note === 'stop'
+          ? kinds.stop
+          : kinds.signal,
+  );
+  if (mailable.length === 0) {
+    // Nada de lo nuevo merece correo: se marca visto y listo.
+    lastPilotTradeId = trades.at(-1)?.id ?? lastPilotTradeId;
+    return;
+  }
+
+  const cooldownMs = Math.max(1, email.cooldownMinutes) * 60_000;
+  // Sin avanzar el marcador: lo pendiente se acumula y sale en el siguiente envío.
+  if (Date.now() - lastPilotEmailAt < cooldownMs) return;
+
+  // Tope por correo: si se acumuló mucho, lo último primero.
+  const batch = mailable.slice(-20);
+  try {
+    await sendMail(to, buildPilotDigestEmail(batch));
+    lastPilotTradeId = trades.at(-1)?.id ?? lastPilotTradeId;
+    lastPilotEmailAt = Date.now();
+    console.log(`[notify] digest del piloto enviado a ${to} (${batch.length} operaciones).`);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'envío fallido';
+    console.warn(`[notify] digest del piloto falló: ${msg}`);
+  }
+}
 
 /**
  * Alertas por email (Fase 3): por cada perfil con alertas activas se calculan
@@ -108,10 +138,25 @@ async function maybeNotifyProfiles(): Promise<void> {
 }
 
 async function tick(): Promise<void> {
-  const result = await runNow('schedule');
-  if ('skipped' in result) return;
+  if ('skipped' in await runNow('schedule')) return;
   nextRunAt = new Date(Date.now() + getDb().settings.intervalSeconds * 1000).toISOString();
-  await maybeNotify(result, 'schedule');
+  // El piloto decide solo con datos en memoria: nunca bloquea ni hace HTTP.
+  try {
+    runAutopilot();
+  } catch (err) {
+    console.warn('[autopilot] no se pudo decidir:', err);
+  }
+  // Histórico gradual: 1 moneda por corrida, sin competir con el scraping.
+  try {
+    const filled = await backfillNext();
+    if (filled) {
+      runAutopilot();
+      console.log(`[history] serie lista: ${filled}.`);
+    }
+  } catch (err) {
+    console.warn('[history] backfill gradual omitido:', err);
+  }
+  await maybeNotifyPilot();
   await maybeNotifyProfiles();
 }
 

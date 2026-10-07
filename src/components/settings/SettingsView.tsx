@@ -1,16 +1,9 @@
 import { useEffect, useState } from 'react';
 import clsx from 'clsx';
 import { Check, Loader2, Mail, Save, Trash2, TriangleAlert } from 'lucide-react';
-import type { NotifyProvider, Settings } from '../../../shared/types';
+import type { Settings } from '../../../shared/types';
 import { api } from '../../lib/api';
 import { Panel, Spinner, Toggle } from '../ui';
-
-const PROVIDERS: Array<{ id: NotifyProvider; label: string; hint: string }> = [
-  { id: 'none', label: 'No enviar', hint: 'Solo queda en el historial.' },
-  { id: 'console', label: 'Consola', hint: 'Ideal para probar sin canal.' },
-  { id: 'slack', label: 'Slack', hint: 'Incoming Webhook.' },
-  { id: 'teams', label: 'Teams', hint: 'Conector de Office 365.' },
-];
 
 export function SettingsView({ onSaved }: { onSaved: () => void }) {
   const [settings, setSettings] = useState<Settings | null>(null);
@@ -39,8 +32,6 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
     setSettings({ ...settings, ...next });
     setSaved(false);
   };
-  const patchNotify = (next: Partial<Settings['notify']>) =>
-    patch({ notify: { ...settings.notify, ...next } });
   const patchThresholds = (next: Partial<Settings['thresholds']>) =>
     patch({ thresholds: { ...settings.thresholds, ...next } });
   const patchEmail = (next: Partial<Settings['notify']['email']>) =>
@@ -164,119 +155,12 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
           </div>
         </Panel>
 
-        <Panel title="Notificaciones" subtitle="Dónde se entrega el reporte diario">
-          <div className="space-y-4">
-            <div>
-              <label className="label">Canal</label>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {PROVIDERS.map((option) => (
-                  <button
-                    key={option.id}
-                    onClick={() => patchNotify({ provider: option.id })}
-                    title={option.hint}
-                    className={clsx(
-                      'rounded-md px-2.5 py-2 text-[12px] font-medium transition-colors',
-                      settings.notify.provider === option.id
-                        ? 'bg-raised text-ink'
-                        : 'bg-canvas text-muted hover:text-ink',
-                    )}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {settings.notify.provider === 'slack' && (
-              <div>
-                <label className="label" htmlFor="slack">
-                  Slack Incoming Webhook URL
-                </label>
-                <input
-                  id="slack"
-                  className="input font-mono text-[11px]"
-                  placeholder="https://hooks.slack.com/services/T000/B000/XXXX"
-                  value={settings.notify.slackWebhook}
-                  onChange={(e) => patchNotify({ slackWebhook: e.target.value })}
-                />
-                <p className="mt-1 text-[10px] text-dim">
-                  Se crea en Slack: Apps → Incoming Webhooks → Add to channel.
-                </p>
-              </div>
-            )}
-
-            {settings.notify.provider === 'teams' && (
-              <div>
-                <label className="label" htmlFor="teams">
-                  Teams Webhook URL
-                </label>
-                <input
-                  id="teams"
-                  className="input font-mono text-[11px]"
-                  placeholder="https://outlook.office.com/webhook/..."
-                  value={settings.notify.teamsWebhook}
-                  onChange={(e) => patchNotify({ teamsWebhook: e.target.value })}
-                />
-                <p className="mt-1 text-[10px] text-dim">
-                  Se crea en el canal de Teams: Manage channel → Workflows → Incoming Webhook.
-                </p>
-              </div>
-            )}
-
-            <div className="space-y-3 border-t border-line-soft pt-3">
-              <Toggle
-                checked={settings.notify.onlyOnEvents}
-                onChange={(value) => patchNotify({ onlyOnEvents: value })}
-                label="Solo enviar si hubo cambios"
-                description="Evita un reporte vacío todos los días."
-              />
-              <Toggle
-                checked={settings.notify.alertOnChange}
-                onChange={(value) => patchNotify({ alertOnChange: value })}
-                label="Avisar en el momento"
-                description="Manda un reporte apenas el agente detecta un cambio, sin esperar al horario diario."
-              />
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label" htmlFor="hour">
-                    Hora del reporte diario
-                  </label>
-                  <input
-                    id="hour"
-                    type="number"
-                    min={0}
-                    max={23}
-                    className="input"
-                    value={settings.notify.dailyReportHour}
-                    onChange={(e) => patchNotify({ dailyReportHour: Number(e.target.value) })}
-                  />
-                </div>
-                <div>
-                  <label className="label" htmlFor="minute">
-                    Minuto
-                  </label>
-                  <input
-                    id="minute"
-                    type="number"
-                    min={0}
-                    max={59}
-                    className="input"
-                    value={settings.notify.dailyReportMinute}
-                    onChange={(e) => patchNotify({ dailyReportMinute: Number(e.target.value) })}
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-        </Panel>
-
-        <Panel title="Alertas por email" subtitle="Un correo por perfil cuando haya movimientos accionables">
+        <Panel title="Alertas por email" subtitle="Servidor SMTP y cooldown (el digest se configura en Reportes)">
           <div className="space-y-4">
             <Toggle
               checked={settings.notify.email.enabled}
               onChange={(value) => patchEmail({ enabled: value })}
-              label="Alertas por email activas"
+              label="Alertas por perfil (avanzado)"
               description="El scheduler revisa cada corrida: solo envía si el perfil tiene veredictos distintos de calma y pasó el cooldown."
             />
             <div className="grid grid-cols-2 gap-3">

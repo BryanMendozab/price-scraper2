@@ -16,13 +16,6 @@ export const config = {
   userAgent:
     process.env.CRAWL_USER_AGENT?.trim() ||
     'AgenteEscolarDemo/1.0 (proyecto escolar de monitoreo de precios)',
-  notifyProvider: (process.env.NOTIFY_PROVIDER?.trim() || 'console') as
-    | 'none'
-    | 'console'
-    | 'slack'
-    | 'teams',
-  slackWebhook: process.env.SLACK_WEBHOOK_URL?.trim() || '',
-  teamsWebhook: process.env.TEAMS_WEBHOOK_URL?.trim() || '',
   smtpHost: process.env.SMTP_HOST?.trim() || '',
   smtpPort: num('SMTP_PORT', 587),
   smtpSecure: (process.env.SMTP_SECURE?.trim() || 'false').toLowerCase() === 'true',

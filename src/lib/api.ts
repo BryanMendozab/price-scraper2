@@ -1,16 +1,19 @@
 import type {
+  AutoDecision,
   CrawlerState,
   DashboardData,
-  NotifyProvider,
+  PilotSummary,
+  PilotWallet,
   PriceEvent,
   Product,
   Recommendation,
-  Report,
   RunRecord,
   Settings,
   StoreId,
   StoreSummary,
   SourceMeta,
+  TradeLogEntry,
+  TrendMarker,
   TrendPoint,
   UserHorizon,
   UserProfile,
@@ -63,13 +66,6 @@ export type RunResponse = {
   crawler?: CrawlerState;
 };
 
-export type PreviewResponse = {
-  provider: NotifyProvider;
-  report: Report;
-  payload: unknown;
-  webhookConfigured: boolean;
-};
-
 export const api = {
   health: () =>
     request<{ ok: boolean; sources: SourceMeta[]; productsTracked: number; runs: number }>('/health'),
@@ -92,7 +88,9 @@ export const api = {
 
   stores: () => request<{ stores: StoreSummary[] }>('/stores'),
 
-  trendIndexed: () => request<{ coins: CoinMeta[]; points: TrendPoint[]; total: number }>('/trend/indexed'),
+  trendIndexed: (points?: number) => request<{ coins: CoinMeta[]; points: TrendPoint[]; total: number; markers: TrendMarker[] }>(
+    `/trend/indexed${points ? `?points=${points}` : ''}`,
+  ),
 
   testStore: (storeId: StoreId) =>
     request<{
@@ -104,19 +102,6 @@ export const api = {
     }>(`/stores/${storeId}/test`, { method: 'POST' }),
 
   runScrape: () => request<RunResponse>('/scrape/run', { method: 'POST' }),
-
-  reports: () => request<{ reports: Report[] }>('/reports'),
-
-  reportPreview: (provider?: NotifyProvider) =>
-    request<PreviewResponse>(`/reports/preview${provider ? `?provider=${provider}` : ''}`),
-
-  generateReport: () => request<{ report: Report }>('/reports/generate', { method: 'POST' }),
-
-  sendReport: (body: { reportId?: string; provider?: NotifyProvider }) =>
-    request<{ ok: boolean; error: string | null; detail: string }>('/reports/send', {
-      method: 'POST',
-      body: JSON.stringify(body),
-    }),
 
   getSettings: () => request<{ settings: Settings; env: { port: number; userAgent: string } }>('/settings'),
 
@@ -140,38 +125,23 @@ export const api = {
 
   profiles: () => request<{ profiles: UserProfile[] }>('/profiles'),
 
+  pilotSummary: () =>
+    request<PilotSummary & { disclaimer: string }>('/pilot/summary'),
+
+  pilotDecisions: () =>
+    request<{ generatedAt: string; budgetMxn: number; decisions: AutoDecision[]; wallets: PilotWallet[]; investingCount: number }>(
+      '/pilot/decisions',
+    ),
+
+  pilotTrades: (limit = 60) =>
+    request<{ trades: TradeLogEntry[]; total: number }>(`/pilot/trades?limit=${limit}`),
+
+  historyStatus: () =>
+    request<{ ready: boolean; coins: number; at: string | null; error: string | null }>('/history/status'),
+
   emailTest: (to: string) =>
     request<{ ok: boolean; error: string | null; detail: string }>('/notify/email/test', {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
-
-  simEvaluate: (params: { coin: string; date: string; side: string; amount: string }) => {
-    const search = new URLSearchParams(params);
-    return request<{ result: SimViewResult; disclaimer: string }>(`/sim/evaluate?${search}`);
-  },
-
-  simRanking: (date: string, amount: string) => {
-    const search = new URLSearchParams({ date, amount });
-    return request<{ results: SimViewResult[]; failed: Array<{ coinId: string; error: string }>; disclaimer: string }>(
-      `/sim/ranking?${search}`,
-    );
-  },
-};
-
-export type SimViewResult = {
-  coinId: string;
-  symbol: string;
-  name: string;
-  date: string;
-  side: 'buy' | 'sell';
-  amount: number;
-  priceThen: number;
-  priceNow: number;
-  qty: number;
-  valueNow: number;
-  pnl: number;
-  pnlPct: number;
-  headline: string;
-  explanation: string;
 };

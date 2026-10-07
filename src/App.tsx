@@ -1,11 +1,10 @@
 import { useDashboard } from './hooks/useDashboard';
-import { useHashTab, TABS } from './hooks/useHashTab';
-import { MobileNav, Sidebar, SUBTITLE } from './components/layout/Sidebar';
-import { Topbar } from './components/layout/Topbar';
+import { useHashTab } from './hooks/useHashTab';
+import { MobileNav, Sidebar } from './components/layout/Sidebar';
 import { OverviewView } from './components/dashboard/OverviewView';
 import { ProductsView } from './components/products/ProductsView';
 import { ProfilesView } from './components/profiles/ProfilesView';
-import { SimView } from './components/sim/SimView';
+import { HistoryView } from './components/history/HistoryView';
 import { AlertsView } from './components/alerts/AlertsView';
 import { ReportView } from './components/report/ReportView';
 import { SettingsView } from './components/settings/SettingsView';
@@ -15,26 +14,24 @@ export default function App() {
   const [tab, goTo] = useHashTab();
   const { data, loading, error, refresh } = useDashboard();
   const stores = data?.stores ?? [];
-  const title = TABS.find((t) => t.id === tab)?.label ?? 'Resumen';
 
   return (
     <div className="flex h-full">
       <Sidebar tab={tab} onChange={goTo} alertCount={data?.kpis.events24h ?? 0} />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar title={title} subtitle={SUBTITLE[tab]} />
         <MobileNav tab={tab} onChange={goTo} />
 
-        <main className="min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="mx-auto max-w-[1400px]">
+        <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+          <div className={tab === 'resumen' ? '' : 'mx-auto max-w-[1400px]'}>
             {tab === 'resumen' && (
-              <OverviewView data={data} loading={loading} error={error} onGoToAlerts={() => goTo('alertas')} />
+              <OverviewView data={data} loading={loading} error={error} onGoToAlerts={() => goTo('alertas')} onGoToPilot={() => goTo('perfiles')} />
             )}
             {tab === 'productos' && <ProductsView stores={stores} />}
             {tab === 'perfiles' && <ProfilesView />}
-            {tab === 'simulador' && <SimView />}
+            {tab === 'historial' && <HistoryView />}
             {tab === 'alertas' && <AlertsView stores={stores} />}
-            {tab === 'reporte' && <ReportView onSent={() => void refresh()} />}
+            {tab === 'reporte' && <ReportView />}
             {tab === 'config' && <SettingsView onSaved={() => void refresh()} />}
           </div>
         </main>

@@ -85,7 +85,6 @@ export function AlertsView({ stores }: { stores: StoreSummary[] }) {
 
       <Panel
         title="Historial de alertas"
-        subtitle="De más reciente a más antigua"
         action={
           <div className="flex gap-1.5">
             {(['high', 'medium', 'low'] as Severity[]).map((s) => (

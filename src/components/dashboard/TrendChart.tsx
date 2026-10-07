@@ -3,19 +3,39 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
-import type { TrendPoint } from '../../../shared/types';
+import type { TrendMarker, TrendPoint } from '../../../shared/types';
 import type { CoinMeta } from '../../../shared/coins';
 import { api } from '../../lib/api';
 import { timeShort } from '../../lib/format';
 import { EmptyState, Panel, Spinner } from '../ui';
 
-/** Un color por moneda, en el orden del Top 10. */
+/** Rangos de la gráfica (a 30 s por corrida): 15 min, 1 h, 3 h o todo el historial. */
+const RANGES = [
+  { id: '30', label: '15 min', points: 30 },
+  { id: '120', label: '1 h', points: 120 },
+  { id: '360', label: '3 h', points: 360 },
+  { id: '600', label: 'Todo', points: 600 },
+] as const;
+
+const RANGE_KEY = 'trend-range';
+
+function initialRange(): number {
+  try {
+    const saved = localStorage.getItem(RANGE_KEY);
+    const found = RANGES.find((r) => r.id === saved);
+    if (found) return found.points;
+  } catch {
+    /* sin localStorage: 1 h por defecto */
+  }
+  return 120;
+}
 const COIN_COLORS = [
   '#f7931a', // BTC
   '#627eea', // ETH
@@ -75,50 +95,109 @@ function ChartTooltip({
  * visible. 101 = +1% desde el inicio; 98 = −2%. Así el precio gigante de BTC
  * no aplasta a las demás y se ve quién se mueve.
  */
-export function TrendChart() {
+export function TrendChart({ bare = false, fill = false }: { bare?: boolean; fill?: boolean }) {
   const [coins, setCoins] = useState<CoinMeta[]>([]);
   const [points, setPoints] = useState<TrendPoint[]>([]);
+  const [markers, setMarkers] = useState<TrendMarker[]>([]);
+  const [range, setRange] = useState<number>(() => initialRange());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let alive = true;
     const load = async () => {
       try {
-        const data = await api.trendIndexed();
+        const data = await api.trendIndexed(range);
         if (!alive) return;
         setCoins(data.coins);
         setPoints(data.points);
+        setMarkers(data.markers ?? []);
       } catch {
         /* se reintenta en el siguiente ciclo */
       } finally {
         if (alive) setLoading(false);
       }
     };
+    setLoading(true);
     void load();
     const id = setInterval(() => void load(), 15000);
     return () => {
       alive = false;
       clearInterval(id);
     };
-  }, []);
+  }, [range]);
+
+  const pickRange = (points: number) => {
+    setRange(points);
+    try {
+      localStorage.setItem(RANGE_KEY, String(points));
+    } catch {
+      /* solo memoria */
+    }
+  };
 
   const colorOf = (index: number) => COIN_COLORS[index % COIN_COLORS.length];
 
+  // Cada operación se ancla al punto más cercano en el tiempo.
+  const dots = markers.slice(-12).flatMap((m, i) => {
+    if (points.length === 0) return [];
+    let best = points[0];
+    const target = Date.parse(m.at);
+    for (const p of points) {
+      if (Math.abs(Date.parse(p.ts) - target) < Math.abs(Date.parse(best.ts) - target)) best = p;
+    }
+    const y = best[m.coinId];
+    if (typeof y !== 'number') return [];
+    const buy = m.side === 'compra';
+    return [
+      <ReferenceDot
+        key={`${m.at}-${m.coinId}-${i}`}
+        x={best.ts}
+        y={y}
+        r={6}
+        fill={buy ? '#6d917c' : '#ab7070'}
+        stroke="var(--color-canvas)"
+        strokeWidth={2}
+        label={{ value: `${buy ? 'C' : 'V'} ${m.symbol}`, fontSize: 9, fill: buy ? '#6d917c' : '#ab7070', position: buy ? 'bottom' : 'top' }}
+      />,
+    ];
+  });
+
+  const legend = (
+    <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <span className="flex items-center gap-1 rounded bg-raised p-0.5">
+        {RANGES.map((r) => (
+          <button
+            key={r.id}
+            type="button"
+            onClick={() => pickRange(r.points)}
+            className={`rounded px-2 py-0.5 font-mono text-[10px] tabular-nums transition-colors ${
+              range === r.points ? 'bg-line text-ink' : 'text-dim hover:text-ink'
+            }`}
+          >
+            {r.label}
+          </button>
+        ))}
+      </span>
+      {coins.map((coin, i) => (
+        <span key={coin.id} className="flex items-center gap-1.5 text-[11px] text-muted">
+          <span className="h-2 w-2 rounded-full" style={{ background: colorOf(i) }} />
+          {coin.symbol}
+        </span>
+      ))}
+      {markers.length > 0 && (
+        <span className="font-mono text-[10px] text-dim">C compra · V venta</span>
+      )}
+    </span>
+  );
+
   return (
     <Panel
-      title="Tendencia base 100"
-      subtitle="100 = primera corrida visible · arriba/abajo = % ganado/perdido"
-      action={
-        <span className="flex flex-wrap gap-x-3 gap-y-1">
-          {coins.map((coin, i) => (
-            <span key={coin.id} className="flex items-center gap-1.5 text-[11px] text-muted">
-              <span className="h-2 w-2 rounded-full" style={{ background: colorOf(i) }} />
-              {coin.symbol}
-            </span>
-          ))}
-        </span>
-      }
+      className={fill ? 'h-full' : undefined}
+      title={bare ? undefined : 'Tendencia base 100'}
+      action={bare ? undefined : legend}
+      bodyClass={bare ? 'flex min-h-0 flex-1 flex-col px-2 pb-2 pt-1' : undefined}
     >
+      {bare && <div className="flex justify-end px-3 pb-1">{legend}</div>}
       {loading && points.length === 0 ? (
         <Spinner />
       ) : points.length < 2 ? (
@@ -127,7 +206,7 @@ export function TrendChart() {
           hint="El agente está monitoreando. En un par de minutos vas a ver las curvas formarse."
         />
       ) : (
-        <div className="h-[260px]">
+        <div className={fill ? 'min-h-[320px] min-w-0 flex-1' : 'h-[260px]'}>
           <ResponsiveContainer width="100%" height="100%">
             <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -8 }}>
               <CartesianGrid stroke="var(--color-line-soft)" strokeDasharray="3 3" vertical={false} />
@@ -159,6 +238,7 @@ export function TrendChart() {
                 strokeDasharray="4 4"
                 strokeOpacity={0.6}
               />
+              {dots}
               {coins.map((coin, i) => (
                 <Line
                   key={coin.id}

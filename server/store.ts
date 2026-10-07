@@ -1,7 +1,7 @@
 ﻿import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { Db, Settings, UserProfile } from '../shared/types.ts';
+import type { AutoDecision, Db, PilotWallet, Settings, TradeLogEntry, UserProfile } from '../shared/types.ts';
 import { isKnownCoin } from '../shared/coins.ts';
 import { config } from './config.ts';
 
@@ -10,20 +10,13 @@ const DB_PATH = path.join(DATA_DIR, 'db.json');
 const DB_VERSION = 1;
 
 /** Cuanto historial se conserva antes de podar (evita que el JSON crezca sin limite). */
-const LIMITS = { snapshots: 600, events: 800, reports: 60, runs: 200 } as const;
+const LIMITS = { snapshots: 600, events: 800, runs: 200 } as const;
 
 export const defaultSettings: Settings = {
   autoScrape: true,
   intervalSeconds: 30,
   thresholds: { changePct: 0.01, mediumPct: 0.2, highPct: 0.8 },
   notify: {
-    provider: 'console',
-    slackWebhook: '',
-    teamsWebhook: '',
-    onlyOnEvents: true,
-    alertOnChange: false,
-    dailyReportHour: 9,
-    dailyReportMinute: 0,
     email: {
       enabled: false,
       smtpHost: '',
@@ -33,6 +26,9 @@ export const defaultSettings: Settings = {
       smtpPass: '',
       from: '',
       cooldownMinutes: 60,
+      pilotEnabled: false,
+      pilotRecipient: '',
+      pilotKinds: { buys: true, target: true, stop: true, signal: false },
     },
   },
 };
@@ -43,11 +39,84 @@ function emptyDb(): Db {
     settings: structuredClone(defaultSettings),
     snapshots: [],
     events: [],
-    reports: [],
     runs: [],
     sourceStatus: {},
-    profiles: [],
+    profiles: seedProfiles(),
+    decisions: [],
+    wallets: [],
+    trades: [],
   };
+}
+
+/**
+ * Los 4 traders demo siempre existen: sin crear ni borrar en la UI.
+ * Perfiles espejo sin email (alertas desactivadas): solo sirven para
+ * calcular recomendaciones por horizonte.
+ */
+export function seedProfiles(): UserProfile[] {
+  const now = new Date().toISOString();
+  const mk = (horizon: UserProfile['horizon'], name: string): UserProfile => ({
+    id: `trader-${horizon}`,
+    name,
+    email: '',
+    horizon,
+    coins: [],
+    alertsEnabled: false,
+    createdAt: now,
+  });
+  return [
+    mk('scalper', 'Scalper demo'),
+    mk('daily', 'Day trader demo'),
+    mk('swing', 'Swing demo'),
+    mk('holder', 'Holder demo'),
+  ];
+}
+
+/** Garantiza que los 4 traders fijos existan (migra DBs viejas sin borrar nada). */
+export function ensureSeedProfiles(): UserProfile[] {
+  return mutate((d) => {
+    const seeds = seedProfiles();
+    for (const s of seeds) {
+      if (!d.profiles.some((p) => p.id === s.id || p.horizon === s.horizon)) {
+        d.profiles.push(s);
+      }
+    }
+    return d.profiles;
+  });
+}
+
+/** Guarda la última decisión por horizonte (máx 4 registros, se pisan). */
+export function upsertDecisions(next: AutoDecision[]): AutoDecision[] {
+  return mutate((d) => {
+    for (const dec of next) {
+      const i = d.decisions.findIndex((x) => x.horizon === dec.horizon);
+      if (i >= 0) d.decisions[i] = dec;
+      else d.decisions.push(dec);
+    }
+    d.decisions = d.decisions.slice(-8);
+    return d.decisions;
+  });
+}
+
+/** Guarda la billetera por horizonte (máx 4 registros, se pisan). */
+export function upsertWallets(next: PilotWallet[]): PilotWallet[] {
+  return mutate((d) => {
+    for (const w of next) {
+      const i = d.wallets.findIndex((x) => x.horizon === w.horizon);
+      if (i >= 0) d.wallets[i] = w;
+      else d.wallets.push(w);
+    }
+    d.wallets = d.wallets.slice(-8);
+    return d.wallets;
+  });
+}
+
+/** Registra una operación en la bitácora (se poda a 200). */
+export function logTrade(entry: TradeLogEntry): void {
+  mutate((d) => {
+    d.trades.push(entry);
+    if (d.trades.length > 200) d.trades = d.trades.slice(-200);
+  });
 }
 
 let db: Db = emptyDb();
@@ -74,6 +143,15 @@ function mergeSettings(saved: unknown): Settings {
   if (typeof savedEmail.from === 'string') email.from = savedEmail.from;
   if (typeof savedEmail.cooldownMinutes === 'number' && savedEmail.cooldownMinutes >= 0)
     email.cooldownMinutes = Math.round(savedEmail.cooldownMinutes);
+  if (typeof savedEmail.pilotEnabled === 'boolean') email.pilotEnabled = savedEmail.pilotEnabled;
+  if (typeof savedEmail.pilotRecipient === 'string')
+    email.pilotRecipient = savedEmail.pilotRecipient.trim().toLowerCase().slice(0, 120);
+  if (savedEmail.pilotKinds && typeof savedEmail.pilotKinds === 'object') {
+    const kinds = savedEmail.pilotKinds as Record<string, unknown>;
+    for (const key of ['buys', 'target', 'stop', 'signal'] as const) {
+      if (typeof kinds[key] === 'boolean') email.pilotKinds[key] = kinds[key];
+    }
+  }
   return {
     autoScrape: typeof s.autoScrape === 'boolean' ? s.autoScrape : base.autoScrape,
     intervalSeconds:
@@ -81,7 +159,7 @@ function mergeSettings(saved: unknown): Settings {
         ? s.intervalSeconds
         : base.intervalSeconds,
     thresholds: { ...base.thresholds, ...(s.thresholds ?? {}) },
-    notify: { ...base.notify, ...(s.notify ?? {}), email },
+    notify: { email },
   };
 }
 
@@ -94,7 +172,6 @@ export async function loadDb(): Promise<Db> {
       settings: mergeSettings(parsed.settings),
       snapshots: parsed.snapshots ?? [],
       events: parsed.events ?? [],
-      reports: parsed.reports ?? [],
       runs: parsed.runs ?? [],
       sourceStatus: parsed.sourceStatus ?? {},
       profiles: Array.isArray(parsed.profiles)
@@ -102,8 +179,18 @@ export async function loadDb(): Promise<Db> {
             ...p,
             alertsEnabled: typeof p.alertsEnabled === 'boolean' ? p.alertsEnabled : true,
           }))
-        : [],
+        : seedProfiles(),
+      decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
+      wallets: Array.isArray(parsed.wallets) ? parsed.wallets : [],
+      trades: Array.isArray(parsed.trades) ? parsed.trades : [],
     };
+    // Migra DBs viejas: completa los 4 traders fijos sin duplicar.
+    const seeds = seedProfiles();
+    for (const s of seeds) {
+      if (!db.profiles.some((p) => p.id === s.id || p.horizon === s.horizon)) {
+        db.profiles.push(s);
+      }
+    }
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== 'ENOENT') {
@@ -112,9 +199,6 @@ export async function loadDb(): Promise<Db> {
     // Primera ejecucion: la configuracion inicial sale del .env.
     db = emptyDb();
     db.settings.intervalSeconds = config.crawlIntervalSeconds;
-    db.settings.notify.provider = config.notifyProvider;
-    db.settings.notify.slackWebhook = config.slackWebhook;
-    db.settings.notify.teamsWebhook = config.teamsWebhook;
     await persist();
   }
   return db;
@@ -162,17 +246,15 @@ export function updateSettings(patch: DeepPartial<Settings>): Settings {
 }
 
 /** Poda el historial segun los limites y devuelve cuantos elementos se descartaron. */
-export function prune(): { snapshots: number; events: number; reports: number; runs: number } {
+export function prune(): { snapshots: number; events: number; runs: number } {
   return mutate((d) => {
     const removed = {
       snapshots: Math.max(0, d.snapshots.length - LIMITS.snapshots),
       events: Math.max(0, d.events.length - LIMITS.events),
-      reports: Math.max(0, d.reports.length - LIMITS.reports),
       runs: Math.max(0, d.runs.length - LIMITS.runs),
     };
     if (removed.snapshots > 0) d.snapshots = d.snapshots.slice(-LIMITS.snapshots);
     if (removed.events > 0) d.events = d.events.slice(-LIMITS.events);
-    if (removed.reports > 0) d.reports = d.reports.slice(-LIMITS.reports);
     if (removed.runs > 0) d.runs = d.runs.slice(-LIMITS.runs);
     return removed;
   });
@@ -180,8 +262,7 @@ export function prune(): { snapshots: number; events: number; reports: number; r
 
 export async function clearHistory(): Promise<void> {
   const settings = db.settings;
-  const profiles = db.profiles;
-  db = { ...emptyDb(), settings, profiles };
+  db = { ...emptyDb(), settings, profiles: seedProfiles() };
   await persist();
 }
 

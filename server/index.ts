@@ -4,9 +4,14 @@ import { config } from './config.ts';
 import { loadDb, getDb } from './store.ts';
 import { api } from './routes.ts';
 import { restartScheduler, runNow, stopScheduler } from './scheduler.ts';
+import { runAutopilot } from './sim/autopilot.ts';
+import { backfillNext, preloadHistory } from './sim/history.ts';
 
 async function main(): Promise<void> {
   await loadDb();
+  // El piloto decide con 7d/30d desde la primera corrida: precargar evita que
+  // arranque degradado a 24h y contradiga sus propias decisiones al minuto.
+  await preloadHistory();
 
   const app = express();
   app.use(cors());
@@ -42,6 +47,29 @@ async function main(): Promise<void> {
   }
 
   restartScheduler();
+
+  // Piloto automático desde el primer paint: decide con lo que haya en vivo.
+  try {
+    const pilot = runAutopilot();
+    console.log(
+      `[server] piloto listo: ${pilot.investingCount}/4 invierten (${pilot.decisions.map((d) => `${d.horizon}:${d.action}`).join(', ')}).`,
+    );
+  } catch (err) {
+    console.warn('[server] piloto inicial no disponible:', err);
+  }
+
+  // Histórico en background: gradual (1 moneda/turno, sin ráfagas ni 429)
+  // y nunca bloquea ni rompe la demo.
+  void backfillNext().then((filled) => {
+    if (filled) {
+      console.log(`[server] histórico iniciado: ${filled}.`);
+      try {
+        runAutopilot();
+      } catch {
+        /* la próxima corrida decide */
+      }
+    }
+  });
 
   const shutdown = (signal: string) => {
     console.log(`\n[server] ${signal} recibido, cerrando...`);

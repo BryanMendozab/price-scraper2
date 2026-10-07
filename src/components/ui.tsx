@@ -1,7 +1,26 @@
 import type { ReactNode } from 'react';
 import clsx from 'clsx';
-import type { EventKind, PriceEvent, Severity } from '../../shared/types';
+import type { EventKind, PriceEvent, Severity, UserHorizon } from '../../shared/types';
 import { money, pct, timeAgo } from '../lib/format';
+
+/* --------------------------- Color por cliente --------------------------- */
+
+export const HORIZON_HUE: Record<UserHorizon, string> = {
+  scalper: 'var(--color-h-scalper)',
+  daily: 'var(--color-h-daily)',
+  swing: 'var(--color-h-swing)',
+  holder: 'var(--color-h-holder)',
+};
+
+/** Micro-etiqueta editorial: la única "cabecera" permitida en la ruta demo. */
+export function Eyebrow({ children, right }: { children: ReactNode; right?: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-1">
+      <p className="eyebrow">{children}</p>
+      {right}
+    </div>
+  );
+}
 
 /* --------------------------------- Panel --------------------------------- */
 

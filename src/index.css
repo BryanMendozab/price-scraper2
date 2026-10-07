@@ -20,6 +20,13 @@
   --color-warn: #9c8858;
 
   --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;
+  --font-display: "Space Grotesk", "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Un color por cliente: separa cromáticamente sin pintar etiquetas. */
+  --color-h-scalper: #e0a63f;
+  --color-h-daily: #63b3cb;
+  --color-h-swing: #a184d8;
+  --color-h-holder: #6d917c;
 }
 
 @layer base {
@@ -70,13 +77,28 @@
 @layer components {
   /* Los contenedores se separan por tono de fondo, nunca por borde. */
   .panel {
-    @apply rounded-lg bg-surface;
+    @apply rounded-xl bg-surface;
   }
   .panel-head {
     @apply flex items-center justify-between gap-3 border-b border-line-soft px-4 py-3;
   }
   .panel-title {
     @apply text-[13px] font-medium tracking-wide text-ink;
+  }
+
+  /* Etiqueta editorial: reemplaza al header de panel en la ruta demo. */
+  .eyebrow {
+    @apply flex items-baseline gap-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-dim;
+  }
+  .eyebrow::before {
+    content: "";
+    @apply inline-block h-px w-5 self-center bg-line;
+  }
+
+  /* Cifras grandes: titulares de la demo. */
+  .display-num {
+    font-family: var(--font-display);
+    @apply font-semibold tracking-tight tabular-nums;
   }
 
   .btn {

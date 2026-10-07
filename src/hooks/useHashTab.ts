@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 
-export type TabId = 'resumen' | 'productos' | 'perfiles' | 'simulador' | 'alertas' | 'reporte' | 'config';
+export type TabId = 'resumen' | 'productos' | 'perfiles' | 'historial' | 'alertas' | 'reporte' | 'config';
 
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'productos', label: 'Productos' },
   { id: 'perfiles', label: 'Perfiles' },
-  { id: 'simulador', label: 'Simulador' },
+  { id: 'historial', label: 'Historial' },
   { id: 'alertas', label: 'Alertas' },
   { id: 'reporte', label: 'Reporte' },
   { id: 'config', label: 'Configuración' },
