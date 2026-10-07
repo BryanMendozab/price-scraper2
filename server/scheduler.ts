@@ -160,6 +160,40 @@ async function tick(): Promise<void> {
   await maybeNotifyPilot();
   await maybeNotifyProfiles();
   await maybeNotifyMovers();
+  await maybeDailyExcel();
+}
+
+/** Día local YYYY-MM-DD ya con Excel enviado (en memoria). */
+let lastExcelDay: string | null = null;
+
+/**
+ * Excel diario 9:00 AM (hora del servidor): reporte de 3 hojas adjunto.
+ * Se envía una sola vez por día si hay SMTP y destinatario configurados.
+ */
+async function maybeDailyExcel(): Promise<void> {
+  const { email } = getDb().settings.notify;
+  if (!emailReady()) return;
+  const to = email.pilotRecipient.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return;
+  const now = new Date();
+  if (now.getHours() !== 9 || now.getMinutes() !== 0) return;
+  const today = `${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}`;
+  if (lastExcelDay === today) return;
+  lastExcelDay = today;
+  try {
+    const { buildExcel } = await import('./report/excel.ts');
+    const date = today.replace(/-/g, '');
+    await sendMail(to, {
+      subject: `Reporte diario piloto ${today} (Excel)`,
+      text: `Adjunto el reporte diario del piloto con resumen, operaciones y alertas.`,
+      html: `<p>Adjunto el reporte diario del piloto con resumen, operaciones y alertas.</p>`,
+      attachments: [{ filename: `reporte-piloto-${date}.xlsx`, content: await buildExcel() }],
+    });
+    console.log(`[notify] excel diario enviado a ${to}.`);
+  } catch (err) {
+    lastExcelDay = null;
+    console.warn(`[notify] excel diario falló: ${err instanceof Error ? err.message : 'envío fallido'}`);
+  }
 }
 
 /** Antispam de movers: último aviso por moneda (en memoria). */

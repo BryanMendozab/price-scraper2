@@ -430,6 +430,7 @@ export interface EmailContent {
   subject: string;
   text: string;
   html: string;
+  attachments?: Array<{ filename: string; content: Uint8Array }>;
 }
 
 export interface EmailConfig {

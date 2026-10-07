@@ -97,7 +97,17 @@ export async function sendMail(to: string, content: EmailContent): Promise<void>
     throw new Error('SMTP no configurado.');
   }
   const transporter = nodemailer.createTransport({ host: cfg.host, port: cfg.port, secure: cfg.secure, auth: { user: cfg.user, pass: cfg.pass } });
-  await transporter.sendMail({ from: cfg.from, to, subject: content.subject, text: content.text, html: content.html });
+  await transporter.sendMail({
+    from: cfg.from,
+    to,
+    subject: content.subject,
+    text: content.text,
+    html: content.html,
+    attachments: (content.attachments ?? []).map((a) => ({
+      filename: a.filename,
+      content: Buffer.from(a.content),
+    })),
+  });
 }
 
 export async function sendProfileAlert(

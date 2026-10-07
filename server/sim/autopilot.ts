@@ -16,15 +16,17 @@ import { config } from '../config.ts';
 import { money } from '../format.ts';
 import { fetchJson, round2 } from '../utils.ts';
 
-/** El piloto solo opera Bitcoin: todo el presupuesto a una posición. */
-const STAKE_FULL = PILOT_BUDGET_MXN;
-const STAKE_PARTIAL = round2(PILOT_BUDGET_MXN / 2);
+/**
+ * El piloto solo opera 3 monedas: Bitcoin + las 2 más volátiles medidas
+ * en un año de histórico (ADA ±4.25%/día, AVAX ±4.05%/día).
+ */
+const PILOT_COINS = ['bitcoin', 'cardano', 'avalanche-2'];
+const STAKE_FULL = round2(PILOT_BUDGET_MXN / 3);
+const STAKE_PARTIAL = round2(PILOT_BUDGET_MXN / 6);
 /** Monto de cobertura: para mantener ~100% del presupuesto invertido. */
-const STAKE_COVER = PILOT_BUDGET_MXN;
-/** Una sola posición: solo Bitcoin. */
-const MAX_POSITIONS = 1;
-/** La única moneda que opera el piloto. */
-const PILOT_COIN = 'bitcoin';
+const STAKE_COVER = round2(PILOT_BUDGET_MXN / 3);
+/** Una posición por moneda como máximo: las 3 elegidas. */
+const MAX_POSITIONS = 3;
 
 type Window = '24h' | '7d' | '30d';
 
@@ -50,7 +52,7 @@ export interface Lens {
  * clientes rara vez coinciden en el mismo estado.
  */
 export const LENSES: Record<UserHorizon, Lens> = {
-  scalper: { small: 1, big: 3, window: '24h', takeProfitPct: 6, stopLossPct: 2, exitLine: -0.4, cooldownMin: 15 },
+  scalper: { small: 1, big: 3, window: '24h', takeProfitPct: 6, stopLossPct: 2, exitLine: -0.4, cooldownMin: 4 },
   daily: { small: 2, big: 5, window: '24h', takeProfitPct: 10, stopLossPct: 4, exitLine: -0.8, cooldownMin: 30 },
   swing: { small: 5, big: 10, window: '7d', takeProfitPct: 20, stopLossPct: 10, exitLine: -2, cooldownMin: 60 },
   holder: { small: 8, big: 15, window: '30d', takeProfitPct: 30, stopLossPct: 16, exitLine: 5, cooldownMin: 45 },
@@ -85,9 +87,9 @@ function positionValue(amount: number, priceAt: number, priceNow: number): { val
 }
 
 /**
- * Piloto automático v7: cada cliente maneja su billetera de $10.000
- * en UNA sola posición de Bitcoin.
- * - Al nacer invierte todo (inversión inicial, una vez).
+ * Piloto automático v8: cada cliente maneja su billetera de $10.000
+ * repartida en tercios entre BTC + las 2 más volátiles (ADA, AVAX).
+ * - Al nacer reparte todo (inversión inicial, una vez).
  * - Después solo abre por señal de verdad (bajón fuerte/leve).
  * - Cierra por objetivo, stop o señal perdida, con motivo en español plano.
  * Todo se calcula con datos en memoria, sin HTTP extra.
@@ -99,7 +101,7 @@ export function runAutopilot(): PilotSummary {
   const nextDecisions: AutoDecision[] = [];
   const nextWallets: PilotWallet[] = [];
 
-  // Universo del piloto: solo Bitcoin.
+  // Universo del piloto: BTC + las 2 más volátiles.
   const universe = pilotUniverse();
   const mine = db.snapshots.filter((s) => s.storeId === 'mercado');
   const latestPrices = new Map(
@@ -197,11 +199,12 @@ export function runAutopilot(): PilotSummary {
         continue;
       }
       const plan = pos.plan ?? buildPlan(pos.priceAt, lens);
-      // La salida por señal exige madurez: recién comprada, la señal mira
-      // hacia atrás y vendería al instante. TP/SL sí aplican siempre.
+      // Madurez anti-churn: recién comprada no se vende por objetivo ni señal
+      // (con objetivos de 0.05% si no, compra y vende cada 30 segundos).
+      // El stop sí aplica siempre: proteger no espera.
       const ageMs = Date.parse(at) - Date.parse(pos.openedAt ?? at);
       const mature = !Number.isFinite(ageMs) || ageMs >= lens.cooldownMin * 60_000;
-      if (priceNow >= plan.takeProfitPrice) {
+      if (mature && priceNow >= plan.takeProfitPrice) {
         closePosition({ ...pos, plan }, priceNow, 'objetivo');
       } else if (priceNow <= plan.stopPrice) {
         closePosition({ ...pos, plan }, priceNow, 'stop');
@@ -284,8 +287,9 @@ export function runAutopilot(): PilotSummary {
         if (s.action !== 'invertir' && s.action !== 'acumular') continue;
         if (positions.some((p) => p.coinId === s.rec.coinId)) continue;
         if (!s.rec.price || s.rec.price <= 0) continue;
-        // Enfriando: solo un bajón excepcional reabre antes de tiempo.
-        if (nowMs < coolingUntil(s.rec.coinId) && s.signal > -lens.big * 1.5) continue;
+      // Enfriando: sin excepciones (con objetivos de 0.05% cualquier
+      // excepción se vuelve ametralladora compra-venta).
+      if (nowMs < coolingUntil(s.rec.coinId)) continue;
         const stake = s.action === 'invertir' ? STAKE_FULL : STAKE_PARTIAL;
         if (stake > cash) continue;
         openPosition(
@@ -600,5 +604,5 @@ export async function adviseHorizon(horizon: UserHorizon): Promise<{
 
 /** Universo actual del piloto sin correr un ciclo (para la UI y decisiones). */
 export function pilotUniverse(): string[] {
-  return [PILOT_COIN];
+  return [...PILOT_COINS];
 }

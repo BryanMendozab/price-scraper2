@@ -85,8 +85,8 @@ export function ReportView() {
             <FileText size={14} /> CSV de precios
           </a>
           <p className="w-full text-[11px] text-muted">
-            El Excel trae 5 hojas: resumen del piloto, decisiones vigentes, billeteras con planes,
-            operaciones y alertas relevantes. Se genera al momento con los datos en vivo.
+            El Excel trae 3 hojas: resumen con posiciones, operaciones con motivos claros y
+            las alertas que sí llegaron al correo. Se genera al momento con los datos en vivo.
           </p>
         </Panel>
       </div>

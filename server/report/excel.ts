@@ -1,37 +1,41 @@
 import ExcelJS from 'exceljs';
 import { getDb } from '../store.ts';
 import { PILOT_BUDGET_MXN } from '../../shared/traders.ts';
-import { dateTime, money } from '../format.ts';
+import { dateTime } from '../format.ts';
 
 const MXN_FMT = '"$"#,##0.00';
 const PCT_FMT = '0.00"%"';
 
 function header(ws: ExcelJS.Worksheet, titles: string[]): void {
   ws.addRow(titles);
-  const row = ws.getRow(1);
+  const row = ws.getRow(ws.rowCount);
   row.font = { bold: true };
   row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1B1C20' } };
-  ws.views = [{ state: 'frozen', ySplit: 1 }];
 }
 
 /** Filtros de Excel sobre el encabezado (hasta la última fila con datos). */
-function autofilter(ws: ExcelJS.Worksheet): void {
-  if (ws.rowCount < 2) return;
+function autofilter(ws: ExcelJS.Worksheet, headerRow: number): void {
+  if (ws.rowCount <= headerRow) return;
   const lastCol = String.fromCharCode('A'.charCodeAt(0) + ws.columnCount - 1);
-  ws.autoFilter = `A1:${lastCol}${ws.rowCount}`;
+  ws.autoFilter = `A${headerRow}:${lastCol}${ws.rowCount}`;
 }
 
-const ACTION_ES: Record<string, string> = {
-  invertir: 'Invertir',
-  acumular: 'Acumular',
-  esperar: 'Esperar',
-  evitar: 'Evitar',
-};
+/** Motivos internos en español plano, igual que en pantalla. */
+function motive(note: string): string {
+  const map: Record<string, string> = {
+    'bajón fuerte': 'bajón fuerte',
+    'bajón leve': 'bajón leve',
+    'inversión inicial': 'inversión inicial',
+    objetivo: 'objetivo cumplido',
+    stop: 'stop de pérdida',
+    'señal': 'se perdió la señal',
+  };
+  return map[note] ?? note;
+}
 
 /**
- * Exporta lo más importante a Excel: resumen del piloto, decisiones vigentes,
- * billeteras con posiciones y planes, operaciones del piloto y alertas
- * relevantes. Sin ruido.
+ * Reporte compacto en 3 hojas: resumen con posiciones, operaciones
+ * con motivos claros y las alertas que sí llegaron al correo.
  */
 export async function buildExcel(): Promise<Buffer> {
   const db = getDb();
@@ -39,11 +43,12 @@ export async function buildExcel(): Promise<Buffer> {
   wb.creator = 'Agente de precios';
   wb.created = new Date();
 
-  // Resumen: KPIs por cliente + total (dinero ficticio, $10.000 por cliente).
+  // 1) Resumen: KPIs por cliente + total, y debajo las posiciones abiertas.
   const summary = wb.addWorksheet('Resumen');
-  summary.addRow([`Reporte piloto · ${dateTime(new Date().toISOString())} · presupuesto $${PILOT_BUDGET_MXN} por cliente (ficticio)`]);
+  summary.addRow([`Reporte piloto · ${dateTime(new Date().toISOString())} · ${PILOT_BUDGET_MXN} por cliente (ficticio)`]);
   summary.addRow([]);
-  header(summary, ['Cliente', 'Presupuesto', 'Invertido', 'Efectivo', 'Valor actual', 'P&L MXN', 'P&L %', 'Realizado', 'Posiciones abiertas']);
+  const kpiHeader = summary.rowCount + 1;
+  header(summary, ['Cliente', 'Presupuesto', 'Invertido', 'Efectivo', 'Valor actual', 'P&L MXN', 'P&L %', 'Realizado', 'Posiciones']);
   const totals = { budget: 0, invested: 0, cash: 0, value: 0, pnl: 0, realized: 0, positions: 0 };
   for (const w of db.wallets) {
     summary.addRow([
@@ -83,67 +88,34 @@ export async function buildExcel(): Promise<Buffer> {
     c.width = 18;
   });
   summary.getColumn(1).width = 24;
+  autofilter(summary, kpiHeader);
 
-  // Decisiones vigentes: qué decidió cada cliente y por qué.
-  const decisions = wb.addWorksheet('Decisiones');
-  header(decisions, ['Cliente', 'Acción', 'Moneda', 'Monto MXN', 'Precio ref.', 'Razón', 'Hora']);
-  for (const d of db.decisions) {
-    decisions.addRow([
-      d.horizon,
-      ACTION_ES[d.action] ?? d.action,
-      `${d.symbol}`,
-      d.amountMxn,
-      d.priceAt ?? '',
-      d.reason,
-      dateTime(d.at),
-    ]);
-  }
-  decisions.getColumn(4).numFmt = MXN_FMT;
-  decisions.getColumn(5).numFmt = MXN_FMT;
-  decisions.columns.forEach((c) => {
-    c.width = 18;
-  });
-  decisions.getColumn(3).width = 12;
-  decisions.getColumn(6).width = 60;
-  decisions.getColumn(7).width = 24;
-  autofilter(decisions);
-
-  // Billeteras: una fila por posición + totales por cliente.
-  const wallets = wb.addWorksheet('Billeteras');
-  header(wallets, ['Cliente', 'Moneda', 'Entrada MXN', 'Precio entrada', 'Valor actual', 'P&L MXN', 'P&L %', 'Plan de venta']);
+  summary.addRow([]);
+  summary.addRow(['Posiciones abiertas']);
+  const posHeader = summary.rowCount + 1;
+  header(summary, ['Cliente', 'Moneda', 'Entrada MXN', 'Precio entrada', 'Valor actual', 'P&L MXN', 'P&L %', 'Plan de venta']);
+  let openCount = 0;
   for (const w of db.wallets) {
     for (const p of w.positions) {
-      wallets.addRow([
+      summary.addRow([
         w.horizon,
         `${p.symbol}`,
         p.amountMxn,
         p.priceAt,
         p.valueNowMxn,
         p.pnlMxn,
-        p.pnlPct,
+        p.pnlPct / 100,
         p.plan.text,
       ]);
+      openCount++;
     }
-    wallets.addRow([
-      `${w.horizon} · total`,
-      `${w.positions.length} posiciones · ${money(w.cashMxn, 'MXN')} libre`,
-      w.investedMxn,
-      '',
-      w.valueNowMxn,
-      w.pnlMxn,
-      w.pnlPct,
-      `Realizado: ${money(w.realizedMxn, 'MXN')}${w.lastExit ? ` · ${w.lastExit}` : ''}`,
-    ]);
   }
-  wallets.columns.forEach((c) => {
-    c.width = 22;
-  });
-  wallets.getColumn(8).width = 52;
-  for (const col of [3, 4, 5, 6]) wallets.getColumn(col).numFmt = MXN_FMT;
-  wallets.getColumn(7).numFmt = PCT_FMT;
-  autofilter(wallets);
+  if (openCount === 0) summary.addRow(['(sin posiciones abiertas)']);
+  summary.getColumn(8).width = 52;
+  autofilter(summary, posHeader);
+  summary.views = [{ state: 'frozen', ySplit: 3 }];
 
-  // Operaciones: la bitácora completa (máx 200).
+  // 2) Operaciones: la bitácora completa (máx 200), motivos en claro.
   const trades = wb.addWorksheet('Operaciones');
   header(trades, ['Fecha', 'Cliente', 'Lado', 'Moneda', 'Monto MXN', 'Precio MXN', 'P&L %', 'Motivo']);
   for (const t of [...db.trades].reverse()) {
@@ -152,49 +124,44 @@ export async function buildExcel(): Promise<Buffer> {
       t.horizon,
       t.side === 'compra' ? 'Compra' : 'Venta',
       t.symbol,
-      t.amountMxn,
+      t.side === 'venta' && t.pnlPct !== null ? t.amountMxn * (1 + t.pnlPct / 100) : t.amountMxn,
       t.priceMxn,
-      t.pnlPct ?? '',
-      t.note,
+      t.pnlPct !== null ? t.pnlPct / 100 : '',
+      motive(t.note),
     ]);
   }
   trades.columns.forEach((c) => {
     c.width = 20;
   });
   trades.getColumn(1).width = 24;
+  trades.getColumn(6).width = 32;
   for (const col of [5, 6]) trades.getColumn(col).numFmt = MXN_FMT;
   trades.getColumn(7).numFmt = PCT_FMT;
-  autofilter(trades);
+  autofilter(trades, 1);
 
-  // Alertas importantes: solo precio medium/high, recientes primero.
+  // 3) Alertas: las que sí llegaron al correo (movers email), recientes primero.
   const alerts = wb.addWorksheet('Alertas');
-  header(alerts, ['Fecha', 'Moneda', 'Movimiento', 'Precio anterior', 'Precio nuevo', 'Variación %', 'Severidad']);
-  const important = db.events
-    .filter(
-      (e) =>
-        (e.kind === 'price_up' || e.kind === 'price_down') &&
-        (e.severity === 'high' || e.severity === 'medium'),
-    )
-    .slice(-100)
-    .reverse();
-  for (const e of important) {
+  header(alerts, ['Fecha', 'Moneda', 'Movimiento', 'Precio anterior', 'Precio nuevo', 'Variación %', 'Ventana']);
+  const sent = [...db.moverAlerts].reverse().slice(0, 100);
+  for (const m of sent) {
     alerts.addRow([
-      dateTime(e.ts),
-      e.title,
-      e.kind === 'price_up' ? 'Subió' : 'Bajó',
-      e.oldPrice ?? '',
-      e.newPrice ?? '',
-      e.deltaPct ?? '',
-      e.severity,
+      dateTime(m.at),
+      `${m.name} (${m.symbol})`,
+      m.changePct >= 0 ? 'Subió' : 'Bajó',
+      m.priceThen,
+      m.priceNow,
+      m.changePct / 100,
+      `${m.minutes} min`,
     ]);
   }
+  if (sent.length === 0) alerts.addRow(['(aún no se ha enviado ninguna alerta)']);
   alerts.columns.forEach((c) => {
     c.width = 20;
   });
   alerts.getColumn(2).width = 32;
   for (const col of [4, 5]) alerts.getColumn(col).numFmt = MXN_FMT;
   alerts.getColumn(6).numFmt = PCT_FMT;
-  autofilter(alerts);
+  autofilter(alerts, 1);
 
   const buffer = await wb.xlsx.writeBuffer();
   return Buffer.from(buffer);

@@ -19,7 +19,7 @@ const ACTION_LABEL: Record<string, string> = {
   comprar: 'Comprar',
 };
 
-function WalletCard({ trader, wallet, universe, lastOp, trades, closed }: { trader: TraderMeta; wallet?: PilotWallet; universe: string[]; lastOp: string | null; trades: TradeLogEntry[]; closed: Array<{ symbol: string; amountIn: number; priceIn: number; priceOut: number; pnlPct: number | null; at: string }> }) {
+function WalletCard({ trader, wallet, universe, lastOp, trades, closed, coinOps }: { trader: TraderMeta; wallet?: PilotWallet; universe: string[]; lastOp: { at: string; side: string; priceMxn: number } | null; trades: TradeLogEntry[]; closed: Array<{ symbol: string; amountIn: number; priceIn: number; priceOut: number; pnlPct: number | null; at: string }>; coinOps: Record<string, { at: string; side: string; priceMxn: number }> }) {
   const hue = HORIZON_HUE[trader.horizon];
   const [advising, setAdvising] = useState(false);
   const [advice, setAdvice] = useState<{ action: string; text: string[]; windowLabel: string; picks: Array<{ coinId: string; symbol: string; action: string; reason: string; changePct: number }>; coins: Array<{ coinId: string; symbol: string; priceThen: number; priceNow: number }>; summary: { priceThen: number; priceNow: number; pnlPct: number | null } | null } | null>(null);
@@ -162,6 +162,15 @@ function WalletCard({ trader, wallet, universe, lastOp, trades, closed }: { trad
               <p className="mt-0.5 font-mono text-[10px] tabular-nums text-dim">
                 {p.plan.text}
               </p>
+              {(() => {
+                const op = coinOps[p.coinId];
+                if (!op) return null;
+                return (
+                  <p className="mt-0.5 font-mono text-[10px] tabular-nums text-dim">
+                    Última operación: {op.side === 'compra' ? 'compró' : 'vendió'} en {money(op.priceMxn, 'MXN')} ({timeAgo(op.at)})
+                  </p>
+                );
+              })()}
             </div>
           ))}
         </div>
@@ -176,6 +185,7 @@ export function ProfilesView() {
   const [universe, setUniverse] = useState<string[]>([]);
   const [lastOps, setLastOps] = useState<Record<string, { at: string; side: string; priceMxn: number }>>({});
   const [flowBy, setFlowBy] = useState<Record<string, TradeLogEntry[]>>({});
+  const [coinOpsBy, setCoinOpsBy] = useState<Record<string, Record<string, { at: string; side: string; priceMxn: number }>>>({});
   const [closedBy, setClosedBy] = useState<Record<string, Array<{ symbol: string; amountIn: number; priceIn: number; priceOut: number; pnlPct: number | null; at: string }>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -190,9 +200,15 @@ export function ProfilesView() {
       setUniverse(p.universe ?? []);
       const last: Record<string, { at: string; side: string; priceMxn: number }> = {};
       const flow: Record<string, TradeLogEntry[]> = {};
+      const coinOps: Record<string, Record<string, { at: string; side: string; priceMxn: number }>> = {};
       for (const trade of tr.trades) {
         if (!last[trade.horizon]) last[trade.horizon] = { at: trade.at, side: trade.side, priceMxn: trade.priceMxn };
+        const ck = trade.horizon + ':' + trade.coinId;
+        if (!coinOps[trade.horizon]) coinOps[trade.horizon] = {};
+        if (!coinOps[trade.horizon][trade.coinId]) coinOps[trade.horizon][trade.coinId] = { at: trade.at, side: trade.side, priceMxn: trade.priceMxn };
+        void ck;
       }
+      setCoinOpsBy(coinOps);
       for (const trade of [...tr.trades].reverse().slice(-3)) {
         (flow[trade.horizon] ??= []).push(trade);
       }
@@ -275,7 +291,7 @@ export function ProfilesView() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {traders.map((t) => (
-            <WalletCard key={t.horizon} trader={t} wallet={walletBy.get(t.horizon)} universe={universe} lastOp={lastOps[t.horizon] ?? null} trades={flowBy[t.horizon] ?? []} closed={closedBy[t.horizon] ?? []} />
+            <WalletCard key={t.horizon} trader={t} wallet={walletBy.get(t.horizon)} universe={universe} lastOp={lastOps[t.horizon] ?? null} trades={flowBy[t.horizon] ?? []} closed={closedBy[t.horizon] ?? []} coinOps={coinOpsBy[t.horizon] ?? {}} />
           ))}
         </div>
       )}

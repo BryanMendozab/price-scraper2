@@ -1,5 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
-import type { PilotWallet, TradeLogEntry } from '../../../shared/types';
+import type { PilotWallet, TradeLogEntry, UserHorizon } from '../../../shared/types';
 import { api } from '../../lib/api';
 import { dateTime, money, pct, timeAgo } from '../../lib/format';
 import { EmptyState, ErrorNote, Eyebrow, HORIZON_HUE, Panel, Spinner } from '../ui';
@@ -69,7 +69,7 @@ export function HistoryView() {
   }, []);
 
   /** Operaciones agrupadas por perfil, cada uno con su dinero actual. */
-  const ORDER = ['scalper', 'daily', 'swing', 'holder'];
+  const ORDER: UserHorizon[] = ['scalper', 'daily', 'swing', 'holder'];
   const grouped = useMemo(() => {
     const byHorizon = new Map<string, TradeLogEntry[]>();
     for (const t of trades) {
