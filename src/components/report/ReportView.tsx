@@ -85,7 +85,8 @@ export function ReportView() {
             <FileText size={14} /> CSV de precios
           </a>
           <p className="w-full text-[11px] text-muted">
-            El Excel trae billeteras con planes, operaciones y alertas relevantes.
+            El Excel trae 5 hojas: resumen del piloto, decisiones vigentes, billeteras con planes,
+            operaciones y alertas relevantes. Se genera al momento con los datos en vivo.
           </p>
         </Panel>
       </div>
@@ -133,6 +134,9 @@ export function ReportView() {
               />
             ))}
           </div>
+          <p className="mt-3 border-t border-line-soft pt-2 text-[10px] text-dim">
+            Ventana y umbral de movimientos se configuran en Configuración → Alertas.
+          </p>
           {savedNote && <p className="mt-2 text-[11px] text-muted">{savedNote}</p>}
           {testNote && <p className="mt-1 text-[11px] text-muted">{testNote}</p>}
           <p className="mt-1 text-[10px] text-dim">

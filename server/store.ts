@@ -1,7 +1,7 @@
 ﻿import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import type { AutoDecision, Db, PilotWallet, Settings, TradeLogEntry, UserProfile } from '../shared/types.ts';
+import type { AutoDecision, Db, MoverAlert, PilotWallet, Settings, TradeLogEntry, UserProfile } from '../shared/types.ts';
 import { isKnownCoin } from '../shared/coins.ts';
 import { config } from './config.ts';
 
@@ -16,6 +16,7 @@ export const defaultSettings: Settings = {
   autoScrape: true,
   intervalSeconds: 30,
   thresholds: { changePct: 0.01, mediumPct: 0.2, highPct: 0.8 },
+  takeProfits: { scalper: 2, daily: 4, swing: 10, holder: 30 },
   notify: {
     email: {
       enabled: false,
@@ -29,6 +30,9 @@ export const defaultSettings: Settings = {
       pilotEnabled: false,
       pilotRecipient: '',
       pilotKinds: { buys: true, target: true, stop: true, signal: false },
+      moversEnabled: false,
+      moversPct: 0.5,
+      moversMinutes: 10,
     },
   },
 };
@@ -45,6 +49,7 @@ function emptyDb(): Db {
     decisions: [],
     wallets: [],
     trades: [],
+    moverAlerts: [],
   };
 }
 
@@ -119,6 +124,15 @@ export function logTrade(entry: TradeLogEntry): void {
   });
 }
 
+/** Registra movers alertados por email (se poda a 100). */
+export function logMoverAlerts(entries: MoverAlert[]): void {
+  if (entries.length === 0) return;
+  mutate((d) => {
+    d.moverAlerts.push(...entries);
+    if (d.moverAlerts.length > 100) d.moverAlerts = d.moverAlerts.slice(-100);
+  });
+}
+
 let db: Db = emptyDb();
 let writeChain: Promise<void> = Promise.resolve();
 
@@ -152,6 +166,11 @@ function mergeSettings(saved: unknown): Settings {
       if (typeof kinds[key] === 'boolean') email.pilotKinds[key] = kinds[key];
     }
   }
+  if (typeof savedEmail.moversEnabled === 'boolean') email.moversEnabled = savedEmail.moversEnabled;
+  if (typeof savedEmail.moversPct === 'number' && savedEmail.moversPct > 0)
+    email.moversPct = savedEmail.moversPct;
+  if (typeof savedEmail.moversMinutes === 'number' && savedEmail.moversMinutes >= 1)
+    email.moversMinutes = Math.round(savedEmail.moversMinutes);
   return {
     autoScrape: typeof s.autoScrape === 'boolean' ? s.autoScrape : base.autoScrape,
     intervalSeconds:
@@ -159,6 +178,24 @@ function mergeSettings(saved: unknown): Settings {
         ? s.intervalSeconds
         : base.intervalSeconds,
     thresholds: { ...base.thresholds, ...(s.thresholds ?? {}) },
+    takeProfits: {
+      ...base.takeProfits,
+      ...Object.fromEntries(
+        (['scalper', 'daily', 'swing', 'holder'] as const)
+          .filter((k) => {
+            const raw = (s as Record<string, unknown>).takeProfits;
+            return (
+              raw !== null &&
+              typeof raw === 'object' &&
+              typeof (raw as Record<string, unknown>)[k] === 'number'
+            );
+          })
+          .map((k) => {
+            const v = Number(((s as Record<string, unknown>).takeProfits as Record<string, unknown>)[k]);
+            return [k, Number.isFinite(v) ? Math.min(500, Math.max(0.05, v)) : base.takeProfits[k]];
+          }),
+      ),
+    },
     notify: { email },
   };
 }
@@ -183,6 +220,7 @@ export async function loadDb(): Promise<Db> {
       decisions: Array.isArray(parsed.decisions) ? parsed.decisions : [],
       wallets: Array.isArray(parsed.wallets) ? parsed.wallets : [],
       trades: Array.isArray(parsed.trades) ? parsed.trades : [],
+      moverAlerts: Array.isArray(parsed.moverAlerts) ? parsed.moverAlerts : [],
     };
     // Migra DBs viejas: completa los 4 traders fijos sin duplicar.
     const seeds = seedProfiles();
@@ -234,11 +272,16 @@ export function updateSettings(patch: DeepPartial<Settings>): Settings {
       ...d.settings,
       ...patch,
       thresholds: { ...d.settings.thresholds, ...(patch.thresholds ?? {}) },
+      takeProfits: { ...d.settings.takeProfits, ...(patch.takeProfits ?? {}) },
       notify: {
         ...d.settings.notify,
         ...(patch.notify ?? {}),
-        // mergeSettings valida el bloque email; si el cliente no lo mandó, se conserva.
-        email: (patchNotify.email ?? d.settings.notify.email) as Settings['notify']['email'],
+        // El email parcial se mezcla sobre el actual antes de validar:
+        // un PUT con solo 2 campos no debe resetear el resto.
+        email: {
+          ...d.settings.notify.email,
+          ...((patchNotify.email ?? {}) as Record<string, unknown>),
+        } as Settings['notify']['email'],
       },
     });
     return d.settings;

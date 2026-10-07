@@ -1,10 +1,11 @@
 @import "tailwindcss";
 
 /* Paleta apagada: jerarquia por fondo, no por bordes. Pocos colores a proposito.
+   Convención trading: subir = verde, bajar = rojo.
    --color-brand  acero      informacion / acento
-   --color-up     ladrillo  el precio subio (malo)
-   --color-down   salvia    el precio bajo (bueno)
-   --color-warn   ocre      atencion */
+   --color-up     salvia     el precio subio
+   --color-down   ladrillo   el precio bajo
+   --color-warn   ocre       atencion */
 @theme {
   --color-canvas: #0a0a0b;
   --color-surface: #121215;
@@ -15,8 +16,8 @@
   --color-dim: #4d4d55;
   --color-ink: #d2d2d7;
   --color-brand: #7b90a5;
-  --color-up: #ab7070;
-  --color-down: #6d917c;
+  --color-up: #6d917c;
+  --color-down: #ab7070;
   --color-warn: #9c8858;
 
   --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, Menlo, Consolas, monospace;

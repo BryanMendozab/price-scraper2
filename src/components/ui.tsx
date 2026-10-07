@@ -174,7 +174,7 @@ export const EVENT_COLOR: Record<EventKind, string> = {
 };
 
 export const SEVERITY_TONE: Record<Severity, ChipTone> = {
-  high: 'up',
+  high: 'down',
   medium: 'warn',
   low: 'neutral',
 };
@@ -187,7 +187,7 @@ export function EventRow({ event, showTime = true }: { event: PriceEvent; showTi
         className={clsx(
           'mt-0.5 w-px shrink-0 self-stretch',
           event.severity === 'high'
-            ? 'bg-up/60'
+            ? 'bg-down/60'
             : event.severity === 'medium'
               ? 'bg-warn/60'
               : 'bg-line',
@@ -201,7 +201,6 @@ export function EventRow({ event, showTime = true }: { event: PriceEvent; showTi
           <span className="truncate text-[13px] text-ink">{event.title}</span>
         </div>
         <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-muted">
-          <span>{event.storeName}</span>
           {isPrice && (
             <span className="font-mono">
               {money(event.oldPrice, event.currency)} → {money(event.newPrice, event.currency)}

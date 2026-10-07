@@ -5,6 +5,7 @@ import { OverviewView } from './components/dashboard/OverviewView';
 import { ProductsView } from './components/products/ProductsView';
 import { ProfilesView } from './components/profiles/ProfilesView';
 import { HistoryView } from './components/history/HistoryView';
+import { BacktestView } from './components/sim/BacktestView';
 import { AlertsView } from './components/alerts/AlertsView';
 import { ReportView } from './components/report/ReportView';
 import { SettingsView } from './components/settings/SettingsView';
@@ -13,7 +14,6 @@ import { ErrorNote } from './components/ui';
 export default function App() {
   const [tab, goTo] = useHashTab();
   const { data, loading, error, refresh } = useDashboard();
-  const stores = data?.stores ?? [];
 
   return (
     <div className="flex h-full">
@@ -25,12 +25,13 @@ export default function App() {
         <main className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
           <div className={tab === 'resumen' ? '' : 'mx-auto max-w-[1400px]'}>
             {tab === 'resumen' && (
-              <OverviewView data={data} loading={loading} error={error} onGoToAlerts={() => goTo('alertas')} onGoToPilot={() => goTo('perfiles')} />
+              <OverviewView data={data} loading={loading} error={error} onGoToAlerts={() => goTo('alertas')} onGoToPilot={() => goTo('piloto')} />
             )}
-            {tab === 'productos' && <ProductsView stores={stores} />}
-            {tab === 'perfiles' && <ProfilesView />}
+            {tab === 'productos' && <ProductsView />}
+            {tab === 'piloto' && <ProfilesView />}
             {tab === 'historial' && <HistoryView />}
-            {tab === 'alertas' && <AlertsView stores={stores} />}
+            {tab === 'simulador' && <BacktestView />}
+            {tab === 'alertas' && <AlertsView />}
             {tab === 'reporte' && <ReportView />}
             {tab === 'config' && <SettingsView onSaved={() => void refresh()} />}
           </div>

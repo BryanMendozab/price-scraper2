@@ -10,7 +10,8 @@ interface ChartResponse {
 }
 
 const HISTORY_PATH = path.resolve(process.cwd(), 'data', 'history.json');
-const BACKFILL_DAYS = 32;
+/** Un año de histórico (límite gratuito): permite ventanas largas como holder 180d. */
+const BACKFILL_DAYS = 365;
 
 /** Serie diaria aproximada por moneda. Vive en disco: sobrevive reinicios. */
 type SeriesMap = Record<string, Array<[number, number]>>;
@@ -56,6 +57,12 @@ export function historyStatus(): { ready: boolean; coins: number; at: string | n
   return { ready: historyReady(), coins: Object.keys(series).length, at: lastBackfillAt, error: lastBackfillError };
 }
 
+/** Días cubiertos por una serie (0 si no hay). */
+function spanDays(points: Array<[number, number]> | undefined): number {
+  if (!Array.isArray(points) || points.length < 2) return 0;
+  return (points[points.length - 1][0] - points[0][0]) / 86_400_000;
+}
+
 function pctChange(first: number, last: number): number | null {
   if (!Number.isFinite(first) || !Number.isFinite(last) || first <= 0) return null;
   return Number((((last - first) / first) * 100).toFixed(2));
@@ -99,8 +106,9 @@ export async function backfillHistory(): Promise<void> {  await loadFromDisk();
   try {
     const next: SeriesMap = { ...series };
     for (const coin of COINS) {
-      // No re-descargar monedas que ya tienen serie larga.
-      if (Array.isArray(next[coin.id]) && next[coin.id].length > 20) continue;
+      // No re-descargar monedas que ya cubren ~1 año (por rango, no por conteo:
+      // 32 días por hora y 365 días mixto tienen cantidades parecidas).
+      if (spanDays(next[coin.id]) >= 300) continue;
       const url =
         `https://api.coingecko.com/api/v3/coins/${coin.id}/market_chart` +
         `?vs_currency=mxn&days=${BACKFILL_DAYS}`;
@@ -137,7 +145,8 @@ export async function backfillHistory(): Promise<void> {  await loadFromDisk();
 export async function backfillNext(): Promise<string | null> {
   await loadFromDisk();
   if (backfilling) return null;
-  const missing = COINS.find((c) => !Array.isArray(series[c.id]) || series[c.id].length <= 20);
+  // Se exige cobertura de ~1 año: las series cortas de 32d se re-descargan una vez.
+  const missing = COINS.find((c) => spanDays(series[c.id]) < 300);
   if (!missing) return null;
   backfilling = true;
   try {
@@ -159,6 +168,12 @@ export async function backfillNext(): Promise<string | null> {
   } finally {
     backfilling = false;
   }
+}
+
+/** Serie completa cacheada (para el backtest, sin HTTP). */
+export function historySeries(coinId: string): Array<[number, number]> | null {
+  const points = series[coinId];
+  return Array.isArray(points) && points.length > 1 ? points : null;
 }
 
 /** Precio histórico aproximado de un día (para el ranking demo, sin HTTP si hay caché). */

@@ -1,13 +1,15 @@
+import { Fragment } from 'react';
 import clsx from 'clsx';
 import {
   BellRing,
+  Bot,
   Boxes,
+  FlaskConical,
   History,
   LayoutDashboard,
   Radio,
   Send,
   Settings2,
-  Users,
 } from 'lucide-react';
 import type { TabId } from '../../hooks/useHashTab';
 import { TABS } from '../../hooks/useHashTab';
@@ -15,9 +17,10 @@ import { TABS } from '../../hooks/useHashTab';
 const ICONS: Record<TabId, typeof LayoutDashboard> = {
   resumen: LayoutDashboard,
   productos: Boxes,
-  perfiles: Users,
-  historial: History,
+  simulador: FlaskConical,
   alertas: BellRing,
+  piloto: Bot,
+  historial: History,
   reporte: Send,
   config: Settings2,
 };
@@ -46,24 +49,28 @@ export function Sidebar({
           const Icon = ICONS[item.id];
           const active = tab === item.id;
           return (
-            <button
-              key={item.id}
-              onClick={() => onChange(item.id)}
-              className={clsx(
-                'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] transition-colors',
-                active
-                  ? 'bg-raised font-medium text-ink'
-                  : 'text-muted hover:bg-raised/50 hover:text-ink',
+            <Fragment key={item.id}>
+              {item.id === 'piloto' && (
+                <hr className="mx-3 my-2 border-line-soft" aria-hidden="true" />
               )}
-            >
-              <Icon size={14} className={clsx('shrink-0', active ? 'text-brand' : 'text-dim')} />
-              <span className="flex-1">{item.label}</span>
-              {item.id === 'alertas' && alertCount > 0 && (
-                <span className="rounded bg-up/15 px-1.5 py-0.5 text-[10px] font-medium text-up">
-                  {alertCount > 99 ? '99+' : alertCount}
-                </span>
-              )}
-            </button>
+              <button
+                onClick={() => onChange(item.id)}
+                className={clsx(
+                  'flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-[13px] transition-colors',
+                  active
+                    ? 'bg-raised font-medium text-ink'
+                    : 'text-muted hover:bg-raised/50 hover:text-ink',
+                )}
+              >
+                <Icon size={14} className={clsx('shrink-0', active ? 'text-brand' : 'text-dim')} />
+                <span className="flex-1">{item.label}</span>
+                {item.id === 'alertas' && alertCount > 0 && (
+                  <span className="rounded bg-warn/15 px-1.5 py-0.5 text-[10px] font-medium text-warn">
+                    {alertCount > 99 ? '99+' : alertCount}
+                  </span>
+                )}
+              </button>
+            </Fragment>
           );
         })}
       </nav>

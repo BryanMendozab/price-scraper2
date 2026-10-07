@@ -25,6 +25,7 @@ const RANGES = [
 ] as const;
 
 const RANGE_KEY = 'trend-range';
+const COINS_KEY = 'trend-coins';
 
 function initialRange(): number {
   try {
@@ -35,6 +36,19 @@ function initialRange(): number {
     /* sin localStorage: 1 h por defecto */
   }
   return 120;
+}
+
+/** Por defecto solo Bitcoin (la de más valor): el usuario suma las que quiera. */
+function initialCoins(): string[] {
+  try {
+    const saved = JSON.parse(localStorage.getItem(COINS_KEY) ?? 'null') as unknown;
+    if (Array.isArray(saved) && saved.length > 0 && saved.every((c): c is string => typeof c === 'string')) {
+      return saved;
+    }
+  } catch {
+    /* sin localStorage: solo bitcoin */
+  }
+  return ['bitcoin'];
 }
 const COIN_COLORS = [
   '#f7931a', // BTC
@@ -100,6 +114,7 @@ export function TrendChart({ bare = false, fill = false }: { bare?: boolean; fil
   const [points, setPoints] = useState<TrendPoint[]>([]);
   const [markers, setMarkers] = useState<TrendMarker[]>([]);
   const [range, setRange] = useState<number>(() => initialRange());
+  const [selected, setSelected] = useState<string[]>(() => initialCoins());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -137,8 +152,24 @@ export function TrendChart({ bare = false, fill = false }: { bare?: boolean; fil
 
   const colorOf = (index: number) => COIN_COLORS[index % COIN_COLORS.length];
 
-  // Cada operación se ancla al punto más cercano en el tiempo.
-  const dots = markers.slice(-12).flatMap((m, i) => {
+  const toggleCoin = (id: string) => {
+    setSelected((prev) => {
+      const next = prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id];
+      // Siempre al menos una visible.
+      const final = next.length === 0 ? ['bitcoin'] : next;
+      try {
+        localStorage.setItem(COINS_KEY, JSON.stringify(final));
+      } catch {
+        /* solo memoria */
+      }
+      return final;
+    });
+  };
+
+  const visible = coins.filter((c) => selected.includes(c.id));
+
+  // Cada operación se ancla al punto más cercano en el tiempo (solo monedas visibles).
+  const dots = markers.filter((m) => selected.includes(m.coinId)).slice(-12).flatMap((m, i) => {
     if (points.length === 0) return [];
     let best = points[0];
     const target = Date.parse(m.at);
@@ -178,12 +209,23 @@ export function TrendChart({ bare = false, fill = false }: { bare?: boolean; fil
           </button>
         ))}
       </span>
-      {coins.map((coin, i) => (
-        <span key={coin.id} className="flex items-center gap-1.5 text-[11px] text-muted">
-          <span className="h-2 w-2 rounded-full" style={{ background: colorOf(i) }} />
-          {coin.symbol}
-        </span>
-      ))}
+      {coins.map((coin, i) => {
+        const on = selected.includes(coin.id);
+        return (
+          <button
+            key={coin.id}
+            type="button"
+            title={on ? `Ocultar ${coin.name}` : `Mostrar ${coin.name}`}
+            onClick={() => toggleCoin(coin.id)}
+            className={`flex items-center gap-1.5 rounded px-1 py-0.5 text-[11px] transition-opacity ${
+              on ? 'text-muted hover:text-ink' : 'text-dim opacity-45 hover:opacity-80'
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full" style={{ background: colorOf(i) }} />
+            {coin.symbol}
+          </button>
+        );
+      })}
       {markers.length > 0 && (
         <span className="font-mono text-[10px] text-dim">C compra · V venta</span>
       )}
@@ -239,13 +281,13 @@ export function TrendChart({ bare = false, fill = false }: { bare?: boolean; fil
                 strokeOpacity={0.6}
               />
               {dots}
-              {coins.map((coin, i) => (
+              {visible.map((coin) => (
                 <Line
                   key={coin.id}
                   type="monotone"
                   dataKey={coin.id}
                   name={coin.symbol}
-                  stroke={colorOf(i)}
+                  stroke={colorOf(coins.findIndex((c) => c.id === coin.id))}
                   strokeWidth={1.8}
                   dot={false}
                   activeDot={{ r: 3 }}

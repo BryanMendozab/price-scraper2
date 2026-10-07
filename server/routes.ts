@@ -5,12 +5,14 @@ import type {
   StoreId,
   TrendPoint,
 } from '../shared/types.ts';
-import { getDb, updateSettings, clearHistory } from './store.ts';
+import { getDb, mutate, updateSettings, clearHistory } from './store.ts';
 import { buildRecommendations } from './profiles/recommend.ts';
 import { TRADERS, PILOT_BUDGET_MXN, isTraderHorizon, traderMeta } from '../shared/traders.ts';
-import { runAutopilot } from './sim/autopilot.ts';
+import { backtest } from './sim/backtest.ts';
+import { adviseHorizon, LENSES, pilotUniverse, runAutopilot, TRADE_EVERY_DAYS } from './sim/autopilot.ts';
 import { historyStatus } from './sim/history.ts';
 import { actionable, buildPilotDigestEmail, buildProfileEmail, emailReady, resolveEmailConfig, sendMail } from './notify/email.ts';
+import { buildMoversEmail, evaluateMovers, windowLabel } from './notify/movers.ts';
 import { COINS } from '../shared/coins.ts';
 import { config } from './config.ts';
 import { testSource } from './agent/index.ts';
@@ -23,7 +25,7 @@ import {
   latestSnapshot,
 } from './agent/analyzer.ts';
 import { buildExcel } from './report/excel.ts';
-import { getCrawlerState, restartScheduler, runNow } from './scheduler.ts';
+import { getCrawlerState, moverAlertState, restartScheduler, runNow } from './scheduler.ts';
 import { SOURCES } from './sources/index.ts';
 import { round2, truncate } from './utils.ts';
 
@@ -91,6 +93,7 @@ api.get('/dashboard', (_req, res) => {
         ? {
             generatedAt: new Date().toISOString(),
             budgetMxn: PILOT_BUDGET_MXN,
+            universe: pilotUniverse(),
             decisions: db.decisions,
             wallets: db.wallets,
             recentTrades: db.trades.slice(-12).reverse(),
@@ -116,6 +119,13 @@ function buildProductRows(): ProductRow[] {
     if (!latest) continue;
     const previous = mine.at(-2);
     const history = mine.slice(-SPARK_POINTS);
+    // Referencia de ~10 min atrás (misma ventana que las alertas por email).
+    const cutoff = Date.parse(latest.ts) - 10 * 60_000;
+    let ref: (typeof mine)[number] | undefined;
+    for (const snap of mine) {
+      if (Date.parse(snap.ts) <= cutoff) ref = snap;
+      else break;
+    }
 
     for (const product of latest.products) {
       const prevEntry = previous?.products.find((p) => p.id === product.id);
@@ -123,6 +133,8 @@ function buildProductRows(): ProductRow[] {
       const series = history
         .map((snap) => snap.products.find((p) => p.id === product.id)?.price)
         .filter((p): p is number => typeof p === 'number');
+      const refEntry = ref?.products.find((p) => p.id === product.id);
+      const refPrice = refEntry && refEntry.price > 0 ? refEntry.price : null;
 
       rows.push({
         storeId: meta.id,
@@ -133,6 +145,10 @@ function buildProductRows(): ProductRow[] {
         deltaPct:
           prevPrice !== null && prevPrice > 0
             ? round2(((product.price - prevPrice) / prevPrice) * 100)
+            : null,
+        change10mPct:
+          refPrice !== null && product.price > 0
+            ? round2(((product.price - refPrice) / refPrice) * 100)
             : null,
         series,
       });
@@ -323,11 +339,80 @@ api.get('/pilot/decisions', (_req, res) => {
   res.json({
     generatedAt: new Date().toISOString(),
     budgetMxn: PILOT_BUDGET_MXN,
+    universe: pilotUniverse(),
     decisions: db.decisions,
     wallets: db.wallets,
     recentTrades: db.trades.slice(-12).reverse(),
     investingCount: db.decisions.filter((d) => d.action === 'invertir' || d.action === 'acumular').length,
   });
+});
+
+/** Accionar: qué hacer HOY según la ventana de cada horizonte, en texto plano. */
+api.post('/pilot/advise/:horizon', async (req, res) => {
+  if (!isTraderHorizon(req.params.horizon)) {
+    res.status(400).json({ error: "horizon debe ser 'scalper', 'daily', 'swing' o 'holder'." });
+    return;
+  }
+  try {
+    res.json(await adviseHorizon(req.params.horizon));
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'No se pudo aconsejar' });
+  }
+});
+
+/** Operar ahora: ejecuta un ciclo del piloto a demanda (para la demo en vivo). */
+api.post('/pilot/run', (_req, res) => {
+  try {
+    const summary = runAutopilot();
+    res.json({ ...summary, disclaimer: 'Contenido educativo: no es asesoría financiera.' });
+  } catch (err) {
+    res.status(500).json({ error: err instanceof Error ? err.message : 'No se pudo decidir' });
+  }
+});
+
+/** Reinicio del piloto: borra billeteras, operaciones y decisiones (dinero ficticio).
+ * En la siguiente corrida las 4 billeteras se siembran de nuevo al 100%. */
+api.post('/pilot/reset', (_req, res) => {
+  mutate((d) => {
+    d.wallets = [];
+    d.trades = [];
+    d.decisions = [];
+  });
+  res.json({ ok: true });
+});
+
+/** Reglas vigentes por perfil (umbrales fijos + objetivo editable). Para explicar la estrategia en Configuración. */
+api.get('/strategy', (_req, res) => {
+  const tp = getDb().settings.takeProfits;
+  res.json({
+    profiles: TRADERS.map((t) => {
+      const lens = LENSES[t.horizon];
+      return {
+        horizon: t.horizon,
+        label: t.label,
+        window:
+          lens.window === '7d' ? '7 días' : lens.window === '30d' ? '30 días' : '24 horas',
+        buyDip: lens.small,
+        buyStrongDip: lens.big,
+        takeProfit: tp[t.horizon],
+        stopLoss: lens.stopLossPct,
+        exitLine: lens.exitLine,
+        cooldownMin: lens.cooldownMin,
+        tradeEveryDays: TRADE_EVERY_DAYS[t.horizon],
+        holdsToExit: t.horizon === 'holder',
+      };
+    }),
+  });
+});
+
+/** Backtest: la misma inversión con las 4 reglas. Body: { coins: string[] (vacío = todas), amount: number }. */
+api.post('/sim/backtest', async (req, res) => {
+  try {
+    const body = (req.body ?? {}) as { coins?: unknown; amount?: unknown };
+    res.json(await backtest({ coins: body.coins ?? [], amount: body.amount }));
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos inválidos' });
+  }
 });
 
 /** Historial de decisiones del piloto (compras y ventas), lo más reciente primero. */
@@ -364,6 +449,30 @@ api.get('/notify/email/pilot-preview', (_req, res) => {
     return;
   }
   res.json({ to: getDb().settings.notify.email.pilotRecipient, empty: false, email: buildPilotDigestEmail(trades) });
+});
+
+/** Movers ahora mismo (sin enviar): qué monedas pasarían el umbral configurado. */
+api.get('/notify/movers/preview', (req, res) => {
+  const q = req.query as Record<string, string>;
+  const email = getDb().settings.notify.email;
+  const minutes = q.minutes !== undefined ? Math.max(1, Math.round(Number(q.minutes))) : email.moversMinutes;
+  const pct = q.pct !== undefined ? Number(q.pct) : email.moversPct;
+  if (!Number.isFinite(minutes) || !Number.isFinite(pct) || pct <= 0) {
+    res.status(400).json({ error: 'Parámetros: minutes >= 1, pct > 0.' });
+    return;
+  }
+  const { movers, atNow, atThen } = evaluateMovers(minutes, pct);
+  const sent = moverAlertState();
+  res.json({
+    minutes,
+    pct,
+    windowLabel: windowLabel(minutes),
+    movers: movers.map((m) => ({ ...m, emailedAt: sent[m.coinId] ?? null })),
+    atNow,
+    atThen,
+    history: [...getDb().moverAlerts].reverse().slice(0, 30),
+    email: movers.length > 0 ? buildMoversEmail(movers, minutes, pct) : null,
+  });
 });
 
 /** Vista previa del correo de un perfil: no envía nada, no necesita SMTP. */

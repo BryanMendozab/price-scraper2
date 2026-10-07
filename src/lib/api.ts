@@ -55,6 +55,7 @@ export type ProductRow = {
   prevPrice: number | null;
   delta: number | null;
   deltaPct: number | null;
+  change10mPct: number | null;
   series: number[];
 };
 
@@ -129,19 +130,87 @@ export const api = {
     request<PilotSummary & { disclaimer: string }>('/pilot/summary'),
 
   pilotDecisions: () =>
-    request<{ generatedAt: string; budgetMxn: number; decisions: AutoDecision[]; wallets: PilotWallet[]; investingCount: number }>(
+    request<{ generatedAt: string; budgetMxn: number; universe: string[]; decisions: AutoDecision[]; wallets: PilotWallet[]; investingCount: number }>(
       '/pilot/decisions',
     ),
 
   pilotTrades: (limit = 60) =>
     request<{ trades: TradeLogEntry[]; total: number }>(`/pilot/trades?limit=${limit}`),
 
+  pilotReset: () => request<{ ok: boolean }>('/pilot/reset', { method: 'POST' }),
+
+  pilotRun: () =>
+    request<PilotSummary & { disclaimer: string }>('/pilot/run', { method: 'POST' }),
+
+  pilotAdvise: (horizon: string) =>
+    request<{ horizon: string; action: 'mantener' | 'vender' | 'comprar'; text: string[]; pnlPct: number | null; windowLabel: string; coins: Array<{ coinId: string; symbol: string; priceThen: number; priceNow: number }>; picks: Array<{ coinId: string; symbol: string; action: string; reason: string; changePct: number }>; summary: { priceThen: number; priceNow: number; pnlPct: number | null } | null; generatedAt: string }>(
+      `/pilot/advise/${horizon}`,
+      { method: 'POST' },
+    ),
+
   historyStatus: () =>
     request<{ ready: boolean; coins: number; at: string | null; error: string | null }>('/history/status'),
+
+  strategy: () =>
+    request<{
+      profiles: Array<{
+        horizon: string;
+        label: string;
+        window: string;
+        buyDip: number;
+        buyStrongDip: number;
+        takeProfit: number;
+        stopLoss: number;
+        exitLine: number;
+        cooldownMin: number;
+        tradeEveryDays: number;
+        holdsToExit: boolean;
+      }>;
+    }>('/strategy'),
+
+  simBacktest: (coins: string[], amount: string) =>
+    request<{
+      amount: number;
+      perCoin: number;
+      coinIds: string[];
+      horizons: Array<{
+        horizon: string;
+        label: string;
+        windowLabel: string;
+        from: string | null;
+        to: string | null;
+        valueNow: number;
+        pnl: number;
+        pnlPct: number;
+        buys: number;
+        sells: number;
+        moves: number;
+        headline: string;
+        explanation: string;
+      }>;
+      disclaimer: string;
+    }>('/sim/backtest', { method: 'POST', body: JSON.stringify({ coins, amount: Number(amount) }) }),
 
   emailTest: (to: string) =>
     request<{ ok: boolean; error: string | null; detail: string }>('/notify/email/test', {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
+
+  moversPreview: (minutes?: number, pct?: number) => {
+    const search = new URLSearchParams();
+    if (minutes !== undefined) search.set('minutes', String(minutes));
+    if (pct !== undefined) search.set('pct', String(pct));
+    const qs = search.toString();
+    return request<{
+      minutes: number;
+      pct: number;
+      windowLabel: string;
+      movers: Array<{ coinId: string; symbol: string; name: string; priceThen: number; priceNow: number; changePct: number; atThen: string; atNow: string; emailedAt: string | null }>;
+      atNow: string | null;
+      atThen: string | null;
+      history: Array<{ id: string; at: string; coinId: string; symbol: string; name: string; priceThen: number; priceNow: number; changePct: number; minutes: number }>;
+      email: { subject: string; text: string; html: string } | null;
+    }>(`/notify/movers/preview${qs ? `?${qs}` : ''}`);
+  },
 };

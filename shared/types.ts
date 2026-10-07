@@ -112,16 +112,31 @@ export interface EmailSettings {
     stop: boolean;
     signal: boolean;
   };
+  /** Alerta de movers: avisa cuando una moneda se mueve más de X% en N minutos. */
+  moversEnabled: boolean;
+  /** Umbral en % (absoluto, suba o baja). 2%/10min casi no ocurre: 0.5% es lo realista. */
+  moversPct: number;
+  /** Ventana hacia atrás en minutos (10 para la demo en vivo). */
+  moversMinutes: number;
 }
 
 export interface NotifySettings {
   email: EmailSettings;
 }
 
+/** Ganancia con la que se conforma cada perfil (take-profit en %). */
+export interface TakeProfits {
+  scalper: number;
+  daily: number;
+  swing: number;
+  holder: number;
+}
+
 export interface Settings {
   autoScrape: boolean;
   intervalSeconds: number;
   thresholds: Thresholds;
+  takeProfits: TakeProfits;
   notify: NotifySettings;
 }
 
@@ -161,6 +176,21 @@ export interface Db {
   wallets: PilotWallet[];
   /** Bitácora de operaciones del piloto (se poda a 200). */
   trades: TradeLogEntry[];
+  /** Movers que sí se alertaron por email (se poda a 100). */
+  moverAlerts: MoverAlert[];
+}
+
+/** Un movimiento fuerte que generó alerta (vive en el historial aunque el mercado se calme). */
+export interface MoverAlert {
+  id: string;
+  at: string;
+  coinId: string;
+  symbol: string;
+  name: string;
+  priceThen: number;
+  priceNow: number;
+  changePct: number;
+  minutes: number;
 }
 
 /* ------------------------------- Perfiles ------------------------------- */
@@ -232,6 +262,8 @@ export interface AutoDecision {
 export interface PilotSummary {
   generatedAt: string;
   budgetMxn: number;
+  /** CoinIds que opera el piloto (top 3 por precio en vivo). */
+  universe: string[];
   decisions: AutoDecision[];
   /** Billetera de cada cliente: cómo repartió su presupuesto por moneda. */
   wallets: PilotWallet[];
@@ -361,6 +393,8 @@ export interface ProductRow {
   prevPrice: number | null;
   delta: number | null;
   deltaPct: number | null;
+  /** Variación % contra ~10 min atrás (misma ventana que las alertas por email). */
+  change10mPct: number | null;
   /** Ultimos valores de precio para la sparkline (del mas antiguo al mas nuevo). */
   series: number[];
 }

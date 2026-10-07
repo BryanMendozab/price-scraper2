@@ -17,7 +17,7 @@ export const SOURCES: SourceDefinition[] = [
       name: 'Mercado cripto',
       kind: 'api',
       homepage: 'https://www.coingecko.com',
-      description: 'Cotización BTC/ETH en ARS.',
+      description: 'Top 10 cripto en MXN. Cambia en cada corrida.',
     },
     run: scrapeMercadoCripto,
   },

@@ -1,29 +1,49 @@
 import { useEffect, useState } from 'react';
-import clsx from 'clsx';
-import { Check, Loader2, Mail, Save, Trash2, TriangleAlert } from 'lucide-react';
+import { Check, Loader2, Mail, Save } from 'lucide-react';
 import type { Settings } from '../../../shared/types';
 import { api } from '../../lib/api';
 import { Panel, Spinner, Toggle } from '../ui';
 
+const MOVER_WINDOWS = [
+  { minutes: 10, label: '10 minutos' },
+  { minutes: 30, label: '30 minutos' },
+  { minutes: 1440, label: '1 día' },
+  { minutes: 10080, label: '1 semana' },
+];
+
 export function SettingsView({ onSaved }: { onSaved: () => void }) {
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [env, setEnv] = useState<{ port: number; userAgent: string } | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
   const [testTo, setTestTo] = useState('');
   const [testResult, setTestResult] = useState<string | null>(null);
   const [testing, setTesting] = useState(false);
+  const [strategy, setStrategy] = useState<Array<{
+    horizon: string;
+    label: string;
+    window: string;
+    buyDip: number;
+    buyStrongDip: number;
+    takeProfit: number;
+    stopLoss: number;
+    exitLine: number;
+    cooldownMin: number;
+    tradeEveryDays: number;
+    holdsToExit: boolean;
+  }>>([]);
 
   useEffect(() => {
     void api
       .getSettings()
       .then((data) => {
         setSettings(data.settings);
-        setEnv(data.env);
       })
       .catch(() => setError('No se pudo cargar la configuracion.'));
+    void api
+      .strategy()
+      .then((data) => setStrategy(data.profiles))
+      .catch(() => setStrategy([]));
   }, []);
 
   if (!settings) return <Spinner label="Cargando configuracion…" />;
@@ -32,10 +52,10 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
     setSettings({ ...settings, ...next });
     setSaved(false);
   };
-  const patchThresholds = (next: Partial<Settings['thresholds']>) =>
-    patch({ thresholds: { ...settings.thresholds, ...next } });
   const patchEmail = (next: Partial<Settings['notify']['email']>) =>
     patch({ notify: { ...settings.notify, email: { ...settings.notify.email, ...next } } });
+  const patchProfits = (next: Partial<Settings['takeProfits']>) =>
+    patch({ takeProfits: { ...settings.takeProfits, ...next } });
 
   const sendTest = async () => {
     setTesting(true);
@@ -64,17 +84,6 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
     } finally {
       setSaving(false);
     }
-  };
-
-  const clear = async () => {
-    if (!confirmClear) {
-      setConfirmClear(true);
-      setTimeout(() => setConfirmClear(false), 4000);
-      return;
-    }
-    await api.clearData();
-    setConfirmClear(false);
-    onSaved();
   };
 
   return (
@@ -121,38 +130,108 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
           </div>
         </Panel>
 
-        <Panel title="Detección de cambios" subtitle="Umbrales que clasifican cada evento">
+        <Panel title="Alertas" subtitle="Qué te avisa y cada cuánto se compara">
+          <div className="space-y-4">
+            <Toggle
+              checked={settings.notify.email.moversEnabled}
+              onChange={(value) => patchEmail({ moversEnabled: value })}
+              label="Alertas de movimientos"
+              description="Avisa al correo cuando una moneda supera el umbral. Las mismas se ven en Alertas."
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label" htmlFor="movers-window">Comparar contra</label>
+                <select
+                  id="movers-window"
+                  className="input"
+                  value={settings.notify.email.moversMinutes}
+                  onChange={(e) => patchEmail({ moversMinutes: Number(e.target.value) })}
+                >
+                  {MOVER_WINDOWS.map((w) => (
+                    <option key={w.minutes} value={w.minutes}>
+                      Hace {w.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label" htmlFor="movers-pct">Umbral % (±)</label>
+                <input
+                  id="movers-pct"
+                  type="number"
+                  min={0.05}
+                  step={0.05}
+                  className="input"
+                  value={settings.notify.email.moversPct}
+                  onChange={(e) => patchEmail({ moversPct: Number(e.target.value) })}
+                />
+              </div>
+            </div>
+            <p className="text-[10px] text-dim">
+              Ej.: 0.5% hace 10 minutos para demo en vivo; 3% hace 1 día para señales reales.
+              Cada moneda no repite hasta pasar el cooldown.
+            </p>
+          </div>
+        </Panel>
+
+        <Panel title="Objetivos de ganancia" subtitle="Con cuánto % se conforma cada perfil antes de vender">
           <div className="space-y-3">
             {(
               [
-                ['changePct', 'Variación mínima', 'Por debajo de esto se ignora el cambio.'],
-                ['mediumPct', 'Severidad media', 'A partir de acá se marca como media.'],
-                ['highPct', 'Severidad alta', 'A partir de acá es una alerta crítica.'],
+                ['scalper', 'Scalper'],
+                ['daily', 'Day trader'],
+                ['swing', 'Swing'],
+                ['holder', 'Holder'],
               ] as const
-            ).map(([key, label, hint]) => (
-              <div key={key}>
-                <label className="label" htmlFor={key}>
-                  {label}
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    id={key}
-                    type="range"
-                    min={1}
-                    max={60}
-                    step={1}
-                    className="flex-1 accent-[var(--color-brand)]"
-                    value={settings.thresholds[key]}
-                    onChange={(e) => patchThresholds({ [key]: Number(e.target.value) })}
-                  />
-                  <span className="w-14 text-right font-mono text-[13px] text-brand">
-                    {settings.thresholds[key]}%
-                  </span>
+            ).map(([key, label]) => {
+              const rule = strategy.find((s) => s.horizon === key);
+              return (
+                <div key={key} className="rounded-lg border border-line-soft p-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[13px] font-semibold">{label}</span>
+                    <span className="ml-auto flex items-center gap-1.5">
+                      <label className="label mb-0" htmlFor={`tp-${key}`}>Se conforma con</label>
+                      <input
+                        id={`tp-${key}`}
+                        type="number"
+                        min={0.05}
+                        max={500}
+                        step={0.05}
+                        className="input w-20 text-right font-mono"
+                        value={settings.takeProfits[key]}
+                        onChange={(e) => patchProfits({ [key]: Number(e.target.value) })}
+                      />
+                      <span className="text-[12px] text-muted">%</span>
+                    </span>
+                  </div>
+                  {rule && (
+                    <p className="mt-1.5 text-[11px] leading-relaxed text-muted">
+                      Compra cuando algo cae −{rule.buyDip}% o más (mirando {rule.window}).
+                      Vende al <span className="text-ink">+{settings.takeProfits[key]}%</span> para
+                      asegurar y corta en <span className="text-ink">−{rule.stopLoss}%</span> para
+                      no perder más
+                      {rule.holdsToExit
+                        ? '. No vende por señales: una vez dentro, solo sale por objetivo o stop.'
+                        : (
+                          <>
+                            , y suelta si se recupera arriba de{' '}
+                            <span className="text-ink">{rule.exitLine > 0 ? '+' : ''}{rule.exitLine}%</span>.
+                            Tras vender, espera {rule.cooldownMin} min antes de volver a entrar.
+                          </>
+                        )}
+                      {rule.tradeEveryDays > 1 && (
+                        <> Abre como máximo cada {rule.tradeEveryDays} días.</>
+                      )}
+                    </p>
+                  )}
                 </div>
-                <p className="mt-1 text-[10px] text-dim">{hint}</p>
-              </div>
-            ))}
+              );
+            })}
           </div>
+          <p className="mt-2 text-[10px] text-dim">
+            El objetivo lo pones tú (arriba). El resto son las reglas fijas del sistema.
+            Aplica al piloto en vivo, al simulador y al botón Accionar.
+          </p>
         </Panel>
 
         <Panel title="Alertas por email" subtitle="Servidor SMTP y cooldown (el digest se configura en Reportes)">
@@ -259,35 +338,6 @@ export function SettingsView({ onSaved }: { onSaved: () => void }) {
           </div>
         </Panel>
 
-        <Panel title="Datos" subtitle="Historial acumulado en data/db.json">
-          <div className="space-y-3">
-            <div className="rounded-md bg-canvas px-3 py-2.5 text-[11px] text-muted">
-              <p>
-                <span className="text-ink">Servidor en el puerto {env?.port}</span>, con proxy de Vite
-                en /api.
-              </p>
-              <p className="mt-1 break-all">
-                User-Agent: <span className="font-mono text-dim">{env?.userAgent}</span>
-              </p>
-              <p className="mt-1">
-                Los cambios se aplican en caliente, sin reiniciar el servidor.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 text-[11px] text-warn">
-              <TriangleAlert size={13} />
-              <span>Borrar el historial no se puede deshacer.</span>
-            </div>
-
-            <button
-              className={clsx('btn w-full', confirmClear ? 'btn-danger' : '')}
-              onClick={() => void clear()}
-            >
-              <Trash2 size={13} />
-              {confirmClear ? 'Confirmá el borrado' : 'Borrar todo el historial'}
-            </button>
-          </div>
-        </Panel>
       </div>
 
       <div className="sticky bottom-4 flex justify-end">

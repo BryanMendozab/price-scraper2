@@ -1,10 +1,11 @@
 import type { CrawlerState, RunTrigger } from '../shared/types.ts';
 import { runCycle, type CycleResult } from './agent/index.ts';
-import { getDb } from './store.ts';
+import { getDb, logMoverAlerts } from './store.ts';
 import { buildRecommendations } from './profiles/recommend.ts';
 import { actionable, buildPilotDigestEmail, emailReady, sendMail, sendProfileAlert } from './notify/email.ts';
 import { runAutopilot } from './sim/autopilot.ts';
 import { backfillNext } from './sim/history.ts';
+import { buildMoversEmail, evaluateMovers } from './notify/movers.ts';
 
 const MIN_INTERVAL_SECONDS = 5;
 
@@ -158,6 +159,72 @@ async function tick(): Promise<void> {
   }
   await maybeNotifyPilot();
   await maybeNotifyProfiles();
+  await maybeNotifyMovers();
+}
+
+/** Antispam de movers: último aviso por moneda (en memoria). */
+const lastMoverAlert = new Map<string, number>();
+let moversBootstrapped = false;
+
+/** Al arrancar se siembra desde el historial: no reenviar lo ya avisado. */
+function bootstrapMovers(): void {
+  if (moversBootstrapped) return;
+  moversBootstrapped = true;
+  for (const a of getDb().moverAlerts) {
+    const ms = Date.parse(a.at);
+    if (!Number.isFinite(ms)) continue;
+    if ((lastMoverAlert.get(a.coinId) ?? 0) < ms) lastMoverAlert.set(a.coinId, ms);
+  }
+}
+
+/** Para que la UI muestre lo mismo que el correo: cuándo se avisó cada moneda. */
+export function moverAlertState(): Record<string, string | null> {
+  const state: Record<string, string | null> = {};
+  for (const [coinId, at] of lastMoverAlert) state[coinId] = new Date(at).toISOString();
+  return state;
+}
+
+/**
+ * Alerta de movers: si alguna moneda se movió ±moversPct en los últimos
+ * moversMinutes, manda UN correo agrupado. Cada moneda respeta el cooldown
+ * general para no spamear; las que ya avisaron no repiten hasta que pase.
+ */
+async function maybeNotifyMovers(): Promise<void> {
+  const { email } = getDb().settings.notify;
+  if (!email.moversEnabled) return;
+  if (!emailReady()) return;
+  const to = email.pilotRecipient.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return;
+
+  bootstrapMovers();
+  const { movers } = evaluateMovers(email.moversMinutes, email.moversPct);
+  if (movers.length === 0) return;
+
+  const cooldownMs = Math.max(1, email.cooldownMinutes) * 60_000;
+  const fresh = movers.filter((m) => Date.now() - (lastMoverAlert.get(m.coinId) ?? 0) >= cooldownMs);
+  if (fresh.length === 0) return;
+
+  try {
+    await sendMail(to, buildMoversEmail(fresh, email.moversMinutes, email.moversPct));
+    const at = new Date().toISOString();
+    for (const m of fresh) lastMoverAlert.set(m.coinId, Date.now());
+    logMoverAlerts(
+      fresh.map((m) => ({
+        id: `${at}-${m.coinId}`,
+        at,
+        coinId: m.coinId,
+        symbol: m.symbol,
+        name: m.name,
+        priceThen: m.priceThen,
+        priceNow: m.priceNow,
+        changePct: m.changePct,
+        minutes: email.moversMinutes,
+      })),
+    );
+    console.log(`[notify] alerta de movers enviada a ${to} (${fresh.length} monedas).`);
+  } catch (err) {
+    console.warn(`[notify] alerta de movers falló: ${err instanceof Error ? err.message : 'envío fallido'}`);
+  }
 }
 
 /** (Re)arma el temporizador con el intervalo configurado. */
