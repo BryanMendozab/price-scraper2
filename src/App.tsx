@@ -5,6 +5,7 @@ import { Topbar } from './components/layout/Topbar';
 import { OverviewView } from './components/dashboard/OverviewView';
 import { ProductsView } from './components/products/ProductsView';
 import { ProfilesView } from './components/profiles/ProfilesView';
+import { SimView } from './components/sim/SimView';
 import { AlertsView } from './components/alerts/AlertsView';
 import { ReportView } from './components/report/ReportView';
 import { SettingsView } from './components/settings/SettingsView';
@@ -31,6 +32,7 @@ export default function App() {
             )}
             {tab === 'productos' && <ProductsView stores={stores} />}
             {tab === 'perfiles' && <ProfilesView />}
+            {tab === 'simulador' && <SimView />}
             {tab === 'alertas' && <AlertsView stores={stores} />}
             {tab === 'reporte' && <ReportView onSent={() => void refresh()} />}
             {tab === 'config' && <SettingsView onSaved={() => void refresh()} />}

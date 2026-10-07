@@ -12,9 +12,11 @@ import type {
   StoreSummary,
   SourceMeta,
   TrendPoint,
+  UserHorizon,
   UserProfile,
 } from '../../shared/types';
 import type { CoinMeta } from '../../shared/coins';
+import type { TraderMeta } from '../../shared/traders';
 
 export class ApiError extends Error {
   status: number;
@@ -125,44 +127,51 @@ export const api = {
 
   coins: () => request<{ coins: Array<{ id: string; symbol: string; name: string }> }>('/coins').catch(() => emptyCoins()),
 
-  profiles: () => request<{ profiles: UserProfile[] }>('/profiles'),
+  traders: () => request<{ traders: TraderMeta[] }>('/traders'),
 
-  createProfile: (body: { name: string; email: string; horizon: string; coins: string[]; alertsEnabled?: boolean }) =>
-    request<{ profile: UserProfile }>('/profiles', { method: 'POST', body: JSON.stringify(body) }),
-
-  updateProfile: (id: string, body: { name: string; email: string; horizon: string; coins: string[]; alertsEnabled?: boolean }) =>
-    request<{ profile: UserProfile }>(`/profiles/${id}`, { method: 'PUT', body: JSON.stringify(body) }),
-
-  deleteProfile: (id: string) => request<{ ok: boolean }>(`/profiles/${id}`, { method: 'DELETE' }),
-
-  toggleProfileAlerts: (id: string, enabled: boolean) =>
-    request<{ profile: UserProfile }>(`/profiles/${id}/alerts`, {
-      method: 'PATCH',
-      body: JSON.stringify({ enabled }),
-    }),
-
-  recommendations: (id: string) =>
-    request<{ recommendations: Recommendation[]; disclaimer: string; generatedAt: string }>(
-      `/profiles/${id}/recommendations`,
-    ),
-
-  emailStatus: () =>
-    request<{ enabled: boolean; ready: boolean; host: string; port: number; user: string; from: string }>(
-      '/notify/email/status',
-    ),
-
-  emailPreview: (profileId: string) =>
+  traderRecommendations: (horizon: UserHorizon) =>
     request<{
-      profileId: string;
-      to: string;
-      actionable: number;
-      total: number;
-      email: { subject: string; text: string; html: string };
-    }>(`/notify/email/preview/${profileId}`),
+      trader: TraderMeta;
+      recommendations: Recommendation[];
+      counts: Record<string, number>;
+      disclaimer: string;
+      generatedAt: string;
+    }>(`/traders/${horizon}/recommendations`),
+
+  profiles: () => request<{ profiles: UserProfile[] }>('/profiles'),
 
   emailTest: (to: string) =>
     request<{ ok: boolean; error: string | null; detail: string }>('/notify/email/test', {
       method: 'POST',
       body: JSON.stringify({ to }),
     }),
+
+  simEvaluate: (params: { coin: string; date: string; side: string; amount: string }) => {
+    const search = new URLSearchParams(params);
+    return request<{ result: SimViewResult; disclaimer: string }>(`/sim/evaluate?${search}`);
+  },
+
+  simRanking: (date: string, amount: string) => {
+    const search = new URLSearchParams({ date, amount });
+    return request<{ results: SimViewResult[]; failed: Array<{ coinId: string; error: string }>; disclaimer: string }>(
+      `/sim/ranking?${search}`,
+    );
+  },
+};
+
+export type SimViewResult = {
+  coinId: string;
+  symbol: string;
+  name: string;
+  date: string;
+  side: 'buy' | 'sell';
+  amount: number;
+  priceThen: number;
+  priceNow: number;
+  qty: number;
+  valueNow: number;
+  pnl: number;
+  pnlPct: number;
+  headline: string;
+  explanation: string;
 };

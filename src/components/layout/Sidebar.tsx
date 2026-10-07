@@ -2,6 +2,7 @@ import clsx from 'clsx';
 import {
   BellRing,
   Boxes,
+  FlaskConical,
   LayoutDashboard,
   Radio,
   Send,
@@ -15,6 +16,7 @@ const ICONS: Record<TabId, typeof LayoutDashboard> = {
   resumen: LayoutDashboard,
   productos: Boxes,
   perfiles: Users,
+  simulador: FlaskConical,
   alertas: BellRing,
   reporte: Send,
   config: Settings2,
@@ -22,11 +24,12 @@ const ICONS: Record<TabId, typeof LayoutDashboard> = {
 
 const SUBTITLE: Record<TabId, string> = {
   resumen: 'Estado general del mercado y actividad del agente',
-  productos: 'Precios actuales y variación contra la corrida anterior',
-  perfiles: 'perfiles de trading con simulaci�n (presupuesto ficticio) basada en scraping y recomendaciones en lenguaje sencillo',
+  productos: 'Precios actuales y variaciÃ³n contra la corrida anterior',
+  perfiles: 'Elige tu estilo de trader y mira las decisiones ya calculadas',
+  simulador: '¿Y si hubieras comprado o vendido en otra fecha?',
   alertas: 'Historial completo de cambios detectados',
-  reporte: 'Generación y entrega del reporte diario',
-  config: 'Intervalos, umbrales y canal de notificación',
+  reporte: 'GeneraciÃ³n y entrega del reporte diario',
+  config: 'Intervalos, umbrales y canal de notificaciÃ³n',
 };
 
 export function Sidebar({

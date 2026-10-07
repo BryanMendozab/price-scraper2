@@ -6,8 +6,11 @@ import type {
   StoreId,
   TrendPoint,
 } from '../shared/types.ts';
-import { getDb, updateSettings, clearHistory } from './store.ts';
-import { resolveEmailConfig, emailReady, sendMail } from './notify/email.ts';
+import { getDb, updateSettings, clearHistory, createProfile, updateProfile, deleteProfile, setProfileAlerts } from './store.ts';
+import { buildRecommendations } from './profiles/recommend.ts';
+import { TRADERS, isTraderHorizon, traderMeta } from '../shared/traders.ts';
+import { evaluateScenario, rankDay, SIM_DISCLAIMER } from './sim/evaluate.ts';
+import { actionable, buildProfileEmail, emailReady, resolveEmailConfig, sendMail } from './notify/email.ts';
 import { COINS } from '../shared/coins.ts';
 import { config } from './config.ts';
 import { testSource } from './agent/index.ts';
@@ -241,6 +244,43 @@ api.post('/reports/send', async (req, res) => {
   res.status(result.ok ? 200 : 502).json(result);
 });
 
+/* --------------------------- Selector de trader --------------------------- */
+
+/**
+ * Perfiles predefinidos: el usuario elige su estilo y ve decisiones ya
+ * calculadas, sin crear usuarios. Se evalúan con el mismo motor de
+ * recomendaciones, sobre todas las monedas y en MXN.
+ */
+api.get('/traders', (_req, res) => {
+  res.json({ traders: TRADERS });
+});
+
+api.get('/traders/:horizon/recommendations', (req, res) => {
+  if (!isTraderHorizon(req.params.horizon)) {
+    res.status(400).json({ error: "horizon debe ser 'scalper', 'daily', 'swing' o 'holder'." });
+    return;
+  }
+  const meta = traderMeta(req.params.horizon);
+  const virtual = {
+    id: `trader-${meta.horizon}`,
+    name: meta.label,
+    email: '',
+    horizon: meta.horizon,
+    coins: [] as string[],
+    alertsEnabled: false,
+    createdAt: new Date(0).toISOString(),
+  };
+  const { recommendations, disclaimer, generatedAt } = buildRecommendations(virtual);
+  const counts = {
+    calma: 0,
+    atencion: 0,
+    oportunidad: 0,
+    riesgo: 0,
+  } as Record<string, number>;
+  for (const r of recommendations) counts[r.verdict] = (counts[r.verdict] ?? 0) + 1;
+  res.json({ trader: meta, recommendations, counts, disclaimer, generatedAt });
+});
+
 /* -------------------------------- Perfiles -------------------------------- */
 
 api.get('/coins', (_req, res) => {
@@ -358,6 +398,31 @@ api.post('/notify/email/test', async (req, res) => {
   }
 });
 
+/* -------------------------------- Simulador ------------------------------- */
+
+api.get('/sim/evaluate', async (req, res) => {
+  try {
+    const result = await evaluateScenario({
+      coinId: req.query.coin,
+      date: req.query.date,
+      side: req.query.side,
+      amount: req.query.amount,
+    });
+    res.json({ result, disclaimer: SIM_DISCLAIMER });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos inválidos' });
+  }
+});
+
+api.get('/sim/ranking', async (req, res) => {
+  try {
+    const { results, failed, disclaimer } = await rankDay(req.query.date, req.query.amount);
+    res.json({ results, failed, disclaimer });
+  } catch (err) {
+    res.status(400).json({ error: err instanceof Error ? err.message : 'Datos inválidos' });
+  }
+});
+
 /* ------------------------------ Configuración ----------------------------- */
 
 api.get('/settings', (_req, res) => {
@@ -426,12 +491,4 @@ api.get('/trend', (_req, res) => {
 api.get('/trend/indexed', (_req, res) => {
   const points = buildIndexedTrend(getDb().snapshots);
   res.json({ coins: COINS, points, total: points.length });
-});
-
-api.get('/agents', (_req, res) => {
-  res.json({ agents: getDb().agents });
-});
-
-api.get('/sim/recommendations', (_req, res) => {
-  res.json(simulateAgents());
 });

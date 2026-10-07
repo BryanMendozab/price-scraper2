@@ -3,6 +3,8 @@ import { runCycle, type CycleResult } from './agent/index.ts';
 import { getDb } from './store.ts';
 import { buildReport } from './report/build.ts';
 import { dispatchReport } from './report/send.ts';
+import { buildRecommendations } from './profiles/recommend.ts';
+import { actionable, emailReady, sendProfileAlert } from './notify/email.ts';
 
 const MIN_INTERVAL_SECONDS = 5;
 
@@ -110,6 +112,7 @@ async function tick(): Promise<void> {
   if ('skipped' in result) return;
   nextRunAt = new Date(Date.now() + getDb().settings.intervalSeconds * 1000).toISOString();
   await maybeNotify(result, 'schedule');
+  await maybeNotifyProfiles();
 }
 
 /** (Re)arma el temporizador con el intervalo configurado. */
