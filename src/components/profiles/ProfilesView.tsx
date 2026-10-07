@@ -19,7 +19,7 @@ const ACTION_LABEL: Record<string, string> = {
   comprar: 'Comprar',
 };
 
-function WalletCard({ trader, wallet, universe, lastOp, trades }: { trader: TraderMeta; wallet?: PilotWallet; universe: string[]; lastOp: string | null; trades: TradeLogEntry[] }) {
+function WalletCard({ trader, wallet, universe, lastOp, trades, closed }: { trader: TraderMeta; wallet?: PilotWallet; universe: string[]; lastOp: string | null; trades: TradeLogEntry[]; closed: Array<{ symbol: string; amountIn: number; priceIn: number; priceOut: number; pnlPct: number | null; at: string }> }) {
   const hue = HORIZON_HUE[trader.horizon];
   const [advising, setAdvising] = useState(false);
   const [advice, setAdvice] = useState<{ action: string; text: string[]; windowLabel: string; picks: Array<{ coinId: string; symbol: string; action: string; reason: string; changePct: number }>; coins: Array<{ coinId: string; symbol: string; priceThen: number; priceNow: number }>; summary: { priceThen: number; priceNow: number; pnlPct: number | null } | null } | null>(null);
@@ -69,7 +69,7 @@ function WalletCard({ trader, wallet, universe, lastOp, trades }: { trader: Trad
           onClick={() => void accionar()}
           disabled={advising}
         >
-          <Zap size={12} /> {advising ? 'Pensando…' : 'Accionar'}
+          <Zap size={12} /> {advising ? 'Pensando…' : 'Situación actual'}
         </button>
       </div>
       {advice && (
@@ -125,6 +125,27 @@ function WalletCard({ trader, wallet, universe, lastOp, trades }: { trader: Trad
         </div>
       )}
 
+      {visible.length === 0 && closed.length > 0 && (
+        <div className="mt-3 border-t border-line-soft pt-1">
+          <p className="px-0 py-1 text-[10px] uppercase tracking-wider text-dim">Últimas cerradas</p>
+          {closed.map((c, i) => (
+            <div key={`${c.symbol}-${c.at}-${i}`} className="border-b border-line-soft/60 py-2 last:border-0">
+              <div className="flex items-baseline gap-2">
+                <span className="text-[13px] font-semibold">{c.symbol}</span>
+                <span className="font-mono text-[11px] tabular-nums text-muted">
+                  {money(c.amountIn, 'MXN')} → {money(c.amountIn * (c.pnlPct !== null ? 1 + c.pnlPct / 100 : 1), 'MXN')}
+                </span>
+                <span className={`ml-auto font-mono text-[11px] tabular-nums ${(c.pnlPct ?? 0) >= 0 ? 'text-up' : 'text-down'}`}>
+                  {c.pnlPct !== null ? `${c.pnlPct >= 0 ? '+' : ''}${c.pnlPct}%` : '—'}
+                </span>
+              </div>
+              <p className="mt-0.5 font-mono text-[10px] tabular-nums text-dim">
+                {money(c.priceIn, 'MXN')} → {money(c.priceOut, 'MXN')} · {timeAgo(c.at)}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
       {visible.length > 0 && (
         <div className="mt-3 border-t border-line-soft pt-1">
           {visible.map((p) => (
@@ -155,6 +176,7 @@ export function ProfilesView() {
   const [universe, setUniverse] = useState<string[]>([]);
   const [lastOps, setLastOps] = useState<Record<string, { at: string; side: string; priceMxn: number }>>({});
   const [flowBy, setFlowBy] = useState<Record<string, TradeLogEntry[]>>({});
+  const [closedBy, setClosedBy] = useState<Record<string, Array<{ symbol: string; amountIn: number; priceIn: number; priceOut: number; pnlPct: number | null; at: string }>>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
@@ -174,8 +196,31 @@ export function ProfilesView() {
       for (const trade of [...tr.trades].reverse().slice(-3)) {
         (flow[trade.horizon] ??= []).push(trade);
       }
+      // Últimas cerradas: cada venta pareada con su compra previa (misma moneda).
+      const closed: Record<string, Array<{ symbol: string; amountIn: number; priceIn: number; priceOut: number; pnlPct: number | null; at: string }>> = {};
+      const openBuys = new Map<string, TradeLogEntry>();
+      for (const trade of [...tr.trades].reverse()) {
+        const key = `${trade.horizon}:${trade.coinId}`;
+        if (trade.side === 'compra') {
+          if (!openBuys.has(key)) openBuys.set(key, trade);
+        } else {
+          const buy = openBuys.get(key);
+          if (buy && (closed[trade.horizon] ?? []).length < 2) {
+            (closed[trade.horizon] ??= []).unshift({
+              symbol: trade.symbol,
+              amountIn: buy.amountMxn,
+              priceIn: buy.priceMxn,
+              priceOut: trade.priceMxn,
+              pnlPct: trade.pnlPct,
+              at: trade.at,
+            });
+          }
+          openBuys.delete(key);
+        }
+      }
       setLastOps(last);
       setFlowBy(flow);
+      setClosedBy(closed);
       setError(null);
     } catch {
       setError('No se pudo cargar el piloto.');
@@ -230,7 +275,7 @@ export function ProfilesView() {
       ) : (
         <div className="grid gap-4 sm:grid-cols-2">
           {traders.map((t) => (
-            <WalletCard key={t.horizon} trader={t} wallet={walletBy.get(t.horizon)} universe={universe} lastOp={lastOps[t.horizon] ?? null} trades={flowBy[t.horizon] ?? []} />
+            <WalletCard key={t.horizon} trader={t} wallet={walletBy.get(t.horizon)} universe={universe} lastOp={lastOps[t.horizon] ?? null} trades={flowBy[t.horizon] ?? []} closed={closedBy[t.horizon] ?? []} />
           ))}
         </div>
       )}
