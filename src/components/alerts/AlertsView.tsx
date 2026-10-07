@@ -16,7 +16,7 @@ interface Mover {
   emailedAt?: string | null;
 }
 
-/** Las mismas alertas importantes que llegan al correo: movers + operaciones. */
+/** Solo lo que sí se envió al correo: movers + operaciones con emailedAt. */
 export function AlertsView() {
   const [movers, setMovers] = useState<Mover[]>([]);
   const [history, setHistory] = useState<Mover[]>([]);
@@ -28,7 +28,7 @@ export function AlertsView() {
 
   const load = useCallback(async () => {
     try {
-      const [m, t] = await Promise.all([api.moversPreview(), api.pilotTrades(8)]);
+      const [m, t] = await Promise.all([api.moversPreview(), api.pilotTrades(30, true)]);
       setMovers(m.movers);
       setHistory((m.history ?? []).map((h) => ({ ...h, atNow: h.at, atThen: h.at })));
       setWindowLabel(m.windowLabel ?? '');
@@ -50,31 +50,33 @@ export function AlertsView() {
 
   if (loading && movers.length === 0 && trades.length === 0) return <Spinner label="Revisando movimientos…" />;
 
-  const liveIds = new Set(movers.map((m) => m.coinId));
+  // Solo lo enviado al correo: movers pendientes ("va al correo") no se muestran.
+  const sentMovers = movers.filter((m) => !!m.emailedAt);
+  const liveIds = new Set(sentMovers.map((m) => m.coinId));
   const past = history.filter((m) => !liveIds.has(m.coinId));
-  const empty = movers.length === 0 && past.length === 0;
+  const empty = sentMovers.length === 0 && past.length === 0;
 
   return (
     <div className="space-y-4">
       {error && <ErrorNote message={error} />}
 
       <Panel
-        title="Movimientos fuertes"
+        title="Movimientos enviados"
         subtitle={
           windowLabel
-            ? `Más de ±${threshold}% ${windowLabel} · lo mismo que llega al correo`
+            ? `Más de ±${threshold}% ${windowLabel} · solo lo que sí llegó al correo`
             : undefined
         }
         bodyClass=""
       >
         {empty ? (
           <EmptyState
-            message="Ninguna moneda supera el umbral."
-            hint="Mercado tranquilo. Cambia ventana o umbral en Configuración → Alertas."
+            message="Nada enviado al correo todavía."
+            hint="Aquí aparecen solo los movimientos que sí se enviaron. Revisa el destinatario en Configuración → Alertas."
           />
         ) : (
           <div>
-            {movers.map((m) => (
+            {sentMovers.map((m) => (
               <div
                 key={`live-${m.coinId}`}
                 className="flex items-center gap-3 border-b border-line-soft px-4 py-2.5 last:border-0"
@@ -86,11 +88,7 @@ export function AlertsView() {
                   {money(m.priceThen, 'MXN')} → {money(m.priceNow, 'MXN')}
                 </span>
                 <DeltaPill value={m.changePct} />
-                {m.emailedAt ? (
-                  <Chip tone="neutral">enviado {timeAgo(m.emailedAt)}</Chip>
-                ) : (
-                  <Chip tone="brand">va al correo</Chip>
-                )}
+                <Chip tone="neutral">enviado {m.emailedAt ? timeAgo(m.emailedAt) : ''}</Chip>
                 <span className="w-20 shrink-0 text-right text-[11px] text-dim">
                   {timeAgo(m.atNow)}
                 </span>
@@ -120,9 +118,9 @@ export function AlertsView() {
         )}
       </Panel>
 
-      <Panel title="Operaciones del piloto" subtitle="Compras y ventas recientes" bodyClass="">
+      <Panel title="Operaciones enviadas" subtitle="Compras y ventas que sí llegaron al correo" bodyClass="">
         {trades.length === 0 ? (
-          <EmptyState message="Aún no hay operaciones." />
+          <EmptyState message="Ninguna operación enviada todavía." />
         ) : (
           <div>
             {trades.map((t) => (

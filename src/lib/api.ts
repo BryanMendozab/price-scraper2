@@ -141,8 +141,10 @@ export const api = {
       '/pilot/decisions',
     ),
 
-  pilotTrades: (limit = 60) =>
-    request<{ trades: TradeLogEntry[]; total: number }>(`/pilot/trades?limit=${limit}`),
+  pilotTrades: (limit = 60, emailedOnly = false) =>
+    request<{ trades: TradeLogEntry[]; total: number }>(
+      `/pilot/trades?limit=${limit}${emailedOnly ? '&emailedOnly=1' : ''}`,
+    ),
 
   pilotReset: () => request<{ ok: boolean }>('/pilot/reset', { method: 'POST' }),
 

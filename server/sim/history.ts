@@ -9,7 +9,7 @@ interface ChartResponse {
   prices?: Array<[number, number]>;
 }
 
-const HISTORY_PATH = path.resolve(process.cwd(), 'data', 'history.json');
+const HISTORY_PATH = path.join(config.dataDir, 'history.json');
 /** Un año de histórico (límite gratuito): permite ventanas largas como holder 180d. */
 const BACKFILL_DAYS = 365;
 

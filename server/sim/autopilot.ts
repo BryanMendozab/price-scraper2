@@ -17,10 +17,15 @@ import { money } from '../format.ts';
 import { fetchJson, round2 } from '../utils.ts';
 
 /**
- * El piloto solo opera 3 monedas: Bitcoin + las 2 más volátiles medidas
- * en un año de histórico (ADA ±4.25%/día, AVAX ±4.05%/día).
+ * Cada horizonte opera sus 3-4 monedas de siempre (como en la vida real nadie
+ * mira las 10 a la vez). Entre los 4 cubren todo el top 10.
  */
-const PILOT_COINS = ['bitcoin', 'cardano', 'avalanche-2'];
+export const HORIZON_UNIVERSE: Record<UserHorizon, string[]> = {
+  scalper: ['bitcoin', 'ethereum', 'solana', 'dogecoin'],
+  daily: ['bitcoin', 'ethereum', 'solana', 'ripple'],
+  swing: ['bitcoin', 'ethereum', 'cardano', 'chainlink'],
+  holder: ['bitcoin', 'ethereum', 'solana'],
+};
 const STAKE_FULL = round2(PILOT_BUDGET_MXN / 3);
 const STAKE_PARTIAL = round2(PILOT_BUDGET_MXN / 6);
 /** Monto de cobertura: para mantener ~100% del presupuesto invertido. */
@@ -28,7 +33,7 @@ const STAKE_COVER = round2(PILOT_BUDGET_MXN / 3);
 /** Una posición por moneda como máximo: las 3 elegidas. */
 const MAX_POSITIONS = 3;
 
-type Window = '24h' | '7d' | '30d';
+type Window = 'vivo' | '24h' | '7d' | '30d';
 
 export interface Lens {
   small: number;
@@ -47,12 +52,12 @@ export interface Lens {
 }
 
 /**
- * Cada horizonte mira SU ventana: aunque en 5 minutos no se mueva nada en vivo,
- * el pasado (7d/30d) casi siempre trae señales distintas por moneda, así los 4
- * clientes rara vez coinciden en el mismo estado.
+ * Cada horizonte mira SU ventana: el scalper lo que pasa en vivo (opera cada
+ * pocos minutos), el daily el día, el swing la semana y el holder el mes.
+ * Así los 4 rara vez coinciden en el mismo estado.
  */
 export const LENSES: Record<UserHorizon, Lens> = {
-  scalper: { small: 1, big: 3, window: '24h', takeProfitPct: 6, stopLossPct: 2, exitLine: -0.4, cooldownMin: 4 },
+  scalper: { small: 0.05, big: 0.15, window: 'vivo', takeProfitPct: 6, stopLossPct: 0.3, exitLine: -0.02, cooldownMin: 4 },
   daily: { small: 2, big: 5, window: '24h', takeProfitPct: 10, stopLossPct: 4, exitLine: -0.8, cooldownMin: 30 },
   swing: { small: 5, big: 10, window: '7d', takeProfitPct: 20, stopLossPct: 10, exitLine: -2, cooldownMin: 60 },
   holder: { small: 8, big: 15, window: '30d', takeProfitPct: 30, stopLossPct: 16, exitLine: 5, cooldownMin: 45 },
@@ -77,6 +82,7 @@ function fmtPct(v: number | null): string {
 }
 
 function windowEs(w: Window): string {
+  if (w === 'vivo') return 'en vivo';
   return w === '7d' ? '7 días' : w === '30d' ? '30 días' : '24 horas';
 }
 
@@ -87,8 +93,9 @@ function positionValue(amount: number, priceAt: number, priceNow: number): { val
 }
 
 /**
- * Piloto automático v8: cada cliente maneja su billetera de $10.000
- * repartida en tercios entre BTC + las 2 más volátiles (ADA, AVAX).
+ * Piloto automático: cada cliente maneja su billetera de $10.000 repartida
+ * entre sus 3-4 monedas de siempre (el scalper en vivo cada pocos minutos,
+ * el daily en el día, el swing en la semana y el holder en el mes).
  * - Al nacer reparte todo (inversión inicial, una vez).
  * - Después solo abre por señal de verdad (bajón fuerte/leve).
  * - Cierra por objetivo, stop o señal perdida, con motivo en español plano.
@@ -101,8 +108,7 @@ export function runAutopilot(): PilotSummary {
   const nextDecisions: AutoDecision[] = [];
   const nextWallets: PilotWallet[] = [];
 
-  // Universo del piloto: BTC + las 2 más volátiles.
-  const universe = pilotUniverse();
+  // Universo del horizonte: sus 3-4 monedas de siempre (se resuelve por trader abajo).
   const mine = db.snapshots.filter((s) => s.storeId === 'mercado');
   const latestPrices = new Map(
     (mine.at(-1)?.products ?? [])
@@ -112,6 +118,7 @@ export function runAutopilot(): PilotSummary {
 
   for (const trader of TRADERS) {
     const horizon = trader.horizon as UserHorizon;
+    const universe = HORIZON_UNIVERSE[horizon];
     // El take-profit se conforma con lo fijado en Configuración por perfil.
     const lens = { ...LENSES[horizon], takeProfitPct: getDb().settings.takeProfits[horizon] };
     const oldWallet = prevWallets.get(horizon);
@@ -130,12 +137,14 @@ export function runAutopilot(): PilotSummary {
     const { recommendations } = buildRecommendations(profile);
 
     // Señal por moneda según la ventana del horizonte, con degradado honesto.
-    // Solo el universo del piloto (top 3); el resto ni se mira.
+    // Solo su universo (3-4 monedas); el resto ni se mira.
     const scored = recommendations.filter((r) => universe.includes(r.coinId)).map((r) => {
       const trend = historyTrend(r.coinId);
       let signal: number | null;
       let used: Window = lens.window;
-      if (lens.window === '7d') {
+      if (lens.window === 'vivo') {
+        signal = r.changeRunPct;
+      } else if (lens.window === '7d') {
         signal = trend.change7d ?? r.change24hPct ?? r.changeRunPct;
         if (trend.change7d === null) used = '24h';
       } else if (lens.window === '30d') {
@@ -276,11 +285,18 @@ export function runAutopilot(): PilotSummary {
         openPosition(s.rec.coinId, s.rec.symbol, s.rec.title, s.rec.price, STAKE_COVER, 'inversión inicial');
       }
     } else {
-      // Ritmo por horizonte: el holder abre como máximo cada 90 días, el swing
-      // cada 7, el daily cada día. Los cierres (objetivo/stop/señal) no se frenan.
+      // Ritmo por horizonte: scalper y daily abren cuando hay señal (el
+      // enfriamiento por moneda pone el ritmo: minutos). Swing y holder solo
+      // abren cada varios días... salvo que sea muy tentador (bajón de
+      // 1.5× el umbral fuerte): eso sí los mueve.
       const lastOp = lastTradeAt(horizon);
+      const tempting = scored.some(
+        (s) => (s.action === 'invertir' || s.action === 'acumular') && s.signal <= -lens.big * 1.5,
+      );
       const gated =
-        lastOp !== null && Date.now() - lastOp < TRADE_EVERY_DAYS[horizon] * 86_400_000;
+        !tempting &&
+        lastOp !== null &&
+        Date.now() - lastOp < TRADE_EVERY_DAYS[horizon] * 86_400_000;
       for (const s of scored) {
         if (gated) break;
         if (positions.length >= MAX_POSITIONS) break;
@@ -394,7 +410,7 @@ export function runAutopilot(): PilotSummary {
   return {
     generatedAt: at,
     budgetMxn: PILOT_BUDGET_MXN,
-    universe,
+    universe: pilotUniverse(),
     decisions: savedDecisions,
     wallets: savedWallets,
     recentTrades: getDb().trades.slice(-12).reverse(),
@@ -402,10 +418,11 @@ export function runAutopilot(): PilotSummary {
   };
 }
 
-/** Cada cuántos días puede abrir operaciones cada horizonte (el holder casi no se toca). */
+/** Cada cuántos días puede abrir operaciones cada horizonte (el holder casi no se toca).
+ *  Swing y holder se saltan el candado solo si es muy tentador (ver `tempting`). */
 export const TRADE_EVERY_DAYS: Record<UserHorizon, number> = {
   scalper: 0,
-  daily: 1,
+  daily: 0,
   swing: 7,
   holder: 90,
 };
@@ -489,12 +506,13 @@ export async function adviseHorizon(horizon: UserHorizon): Promise<{
   pnlPct: number | null;
   windowLabel: string;
   coins: AdviseCoin[];
+  picks: AdvisePick[];
   summary: { priceThen: number; priceNow: number; pnlPct: number | null } | null;
   generatedAt: string;
 }> {
   const generatedAt = new Date().toISOString();
   const lens = { ...LENSES[horizon], takeProfitPct: getDb().settings.takeProfits[horizon] };
-  const universe = pilotUniverse();
+  const universe = HORIZON_UNIVERSE[horizon];
   const windowMs = ADVISE_WINDOW_HOURS[horizon] * 3_600_000;
   const windowStart = Date.now() - windowMs;
   // Ventanas cortas (1h/24h): serie horaria fresca; largas: histórico en disco.
@@ -537,11 +555,13 @@ export async function adviseHorizon(horizon: UserHorizon): Promise<{
     coins.push({ coinId, symbol, priceThen: round2(best[1]), priceNow: round2(priceNow) });
     const trend = historyTrend(coinId);
     const signal =
-      lens.window === '7d'
-        ? (trend.change7d ?? rec?.change24hPct ?? null)
-        : lens.window === '30d'
-          ? (trend.change30d ?? trend.change7d ?? rec?.change24hPct ?? null)
-          : (rec?.change24hPct ?? rec?.changeRunPct ?? null);
+      lens.window === 'vivo'
+        ? (rec?.changeRunPct ?? null)
+        : lens.window === '7d'
+          ? (trend.change7d ?? rec?.change24hPct ?? null)
+          : lens.window === '30d'
+            ? (trend.change30d ?? trend.change7d ?? rec?.change24hPct ?? null)
+            : (rec?.change24hPct ?? rec?.changeRunPct ?? null);
     if (typeof signal === 'number') signals.push(signal);
 
     // Veredicto por moneda, con su motivo explícito.
@@ -602,7 +622,13 @@ export async function adviseHorizon(horizon: UserHorizon): Promise<{
   };
 }
 
-/** Universo actual del piloto sin correr un ciclo (para la UI y decisiones). */
+/** Universo total del piloto (unión de los 4): para la UI y decisiones. */
 export function pilotUniverse(): string[] {
-  return [...PILOT_COINS];
+  const all: string[] = [];
+  for (const h of Object.keys(HORIZON_UNIVERSE) as UserHorizon[]) {
+    for (const c of HORIZON_UNIVERSE[h]) {
+      if (!all.includes(c)) all.push(c);
+    }
+  }
+  return all;
 }

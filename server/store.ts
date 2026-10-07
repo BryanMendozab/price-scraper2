@@ -5,7 +5,7 @@ import type { AutoDecision, Db, MoverAlert, PilotWallet, Settings, TradeLogEntry
 import { isKnownCoin } from '../shared/coins.ts';
 import { config } from './config.ts';
 
-const DATA_DIR = path.resolve(process.cwd(), 'data');
+const DATA_DIR = config.dataDir;
 const DB_PATH = path.join(DATA_DIR, 'db.json');
 const DB_VERSION = 1;
 
@@ -121,6 +121,17 @@ export function logTrade(entry: TradeLogEntry): void {
   mutate((d) => {
     d.trades.push(entry);
     if (d.trades.length > 200) d.trades = d.trades.slice(-200);
+  });
+}
+
+/** Marca operaciones como enviadas al correo (para la vista de Alarmas). */
+export function markTradesEmailed(ids: string[], at: string): void {
+  if (ids.length === 0) return;
+  const set = new Set(ids);
+  mutate((d) => {
+    for (const t of d.trades) {
+      if (set.has(t.id) && !t.emailedAt) t.emailedAt = at;
+    }
   });
 }
 

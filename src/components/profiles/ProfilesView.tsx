@@ -88,9 +88,9 @@ function WalletCard({ trader, wallet, universe, lastOp, trades, closed, coinOps 
               <p className="text-muted">
                 El precio ahora es de {money(advice.summary.priceNow, 'MXN')}
               </p>
-              <p className={advice.summary.pnlPct >= 0 ? 'text-up' : 'text-down'}>
-                {advice.summary.pnlPct >= 0 ? 'Ganancia' : 'Pérdida'} vs ese momento:{' '}
-                {advice.summary.pnlPct >= 0 ? '+' : ''}{advice.summary.pnlPct}%
+              <p className={advice.summary.pnlPct !== null && advice.summary.pnlPct >= 0 ? 'text-up' : 'text-down'}>
+                {advice.summary.pnlPct !== null && advice.summary.pnlPct >= 0 ? 'Ganancia' : 'Pérdida'} vs ese momento:{' '}
+                {advice.summary.pnlPct !== null && advice.summary.pnlPct >= 0 ? '+' : ''}{advice.summary.pnlPct ?? '—'}%
               </p>
             </div>
           )}

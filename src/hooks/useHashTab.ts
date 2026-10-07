@@ -5,11 +5,11 @@ export type TabId = 'resumen' | 'productos' | 'simulador' | 'alertas' | 'piloto'
 const TABS: Array<{ id: TabId; label: string }> = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'productos', label: 'Productos' },
+  { id: 'piloto', label: 'Piloto' },
   { id: 'simulador', label: 'Simulador' },
   { id: 'alertas', label: 'Alertas' },
-  { id: 'piloto', label: 'Piloto' },
-  { id: 'historial', label: 'Historial' },
   { id: 'reporte', label: 'Reporte' },
+  { id: 'historial', label: 'Historial' },
   { id: 'config', label: 'Configuración' },
 ];
 

@@ -391,7 +391,13 @@ api.get('/strategy', (_req, res) => {
         horizon: t.horizon,
         label: t.label,
         window:
-          lens.window === '7d' ? '7 días' : lens.window === '30d' ? '30 días' : '24 horas',
+          lens.window === 'vivo'
+            ? 'en vivo'
+            : lens.window === '7d'
+              ? '7 días'
+              : lens.window === '30d'
+                ? '30 días'
+                : '24 horas',
         buyDip: lens.small,
         buyStrongDip: lens.big,
         takeProfit: tp[t.horizon],
@@ -418,9 +424,12 @@ api.post('/sim/backtest', async (req, res) => {
 /** Historial de decisiones del piloto (compras y ventas), lo más reciente primero. */
 api.get('/pilot/trades', (req, res) => {
   const db = getDb();
-  const raw = Number((req.query as Record<string, string>).limit);
+  const q = req.query as Record<string, string>;
+  const raw = Number(q.limit);
   const limit = Number.isFinite(raw) ? Math.min(200, Math.max(1, Math.round(raw))) : 60;
-  res.json({ trades: [...db.trades].reverse().slice(0, limit), total: db.trades.length });
+  const emailedOnly = q.emailedOnly === '1' || q.emailedOnly === 'true';
+  const all = emailedOnly ? db.trades.filter((t) => !!t.emailedAt) : db.trades;
+  res.json({ trades: [...all].reverse().slice(0, limit), total: all.length });
 });
 
 api.get('/history/status', (_req, res) => {

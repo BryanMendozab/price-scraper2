@@ -11,7 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import type { TrendMarker, TrendPoint } from '../../../shared/types';
-import type { CoinMeta } from '../../../shared/coins';
+import { COINS, type CoinMeta } from '../../../shared/coins';
 import { api } from '../../lib/api';
 import { timeShort } from '../../lib/format';
 import { EmptyState, Panel, Spinner } from '../ui';
@@ -25,7 +25,7 @@ const RANGES = [
 ] as const;
 
 const RANGE_KEY = 'trend-range';
-const COINS_KEY = 'trend-coins';
+const COINS_KEY = 'trend-coins-v2';
 
 function initialRange(): number {
   try {
@@ -38,7 +38,7 @@ function initialRange(): number {
   return 120;
 }
 
-/** Por defecto solo Bitcoin (la de más valor): el usuario suma las que quiera. */
+/** Por defecto todas visibles: el usuario oculta las que quiera. */
 function initialCoins(): string[] {
   try {
     const saved = JSON.parse(localStorage.getItem(COINS_KEY) ?? 'null') as unknown;
@@ -46,9 +46,9 @@ function initialCoins(): string[] {
       return saved;
     }
   } catch {
-    /* sin localStorage: solo bitcoin */
+    /* sin localStorage: todas */
   }
-  return ['bitcoin'];
+  return COINS.map((c) => c.id);
 }
 const COIN_COLORS = [
   '#f7931a', // BTC

@@ -314,6 +314,8 @@ export interface TradeLogEntry {
   pnlPct: number | null;
   /** Por qué se operó: apertura, objetivo cumplido, stop o señal perdida. */
   note: string;
+  /** Cuándo se incluyó en un correo (digest). Sin esto, aún no se ha enviado. */
+  emailedAt?: string | null;
 }
 
 /** Billetera de un cliente: presupuesto repartido en posiciones por moneda. */

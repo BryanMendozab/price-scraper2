@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import fs from 'node:fs';
+import path from 'node:path';
 import { config } from './config.ts';
 import { loadDb, getDb } from './store.ts';
 import { api } from './routes.ts';
@@ -18,9 +20,24 @@ async function main(): Promise<void> {
   app.use(express.json({ limit: '256kb' }));
   app.use('/api', api);
 
-  app.use((_req, res) => {
+  // Rutas /api inexistentes: 404 en JSON.
+  app.use('/api', (_req, res) => {
     res.status(404).json({ error: 'Ruta no encontrada' });
   });
+
+  // Frontend compilado (vite build -> dist/). En Render el mismo servicio
+  // sirve la UI y la API; en dev no existe dist/ y Vite atiende el puerto 5173.
+  const distDir = path.resolve(process.cwd(), 'dist');
+  if (fs.existsSync(path.join(distDir, 'index.html'))) {
+    app.use(express.static(distDir));
+    // Fallback SPA: cualquier ruta no-/api devuelve index.html.
+    app.use((req, res, next) => {
+      if (req.path.startsWith('/api')) return next();
+      res.sendFile(path.join(distDir, 'index.html'), (err) => {
+        if (err) next(err);
+      });
+    });
+  }
 
   const server = app.listen(config.port, () => {
     const { intervalSeconds, autoScrape } = getDb().settings;

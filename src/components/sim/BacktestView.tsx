@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react';
 import { FlaskConical, Play } from 'lucide-react';
+import type { UserHorizon } from '../../../shared/types';
 import { api } from '../../lib/api';
 import { money, pct } from '../../lib/format';
-import { Chip, EmptyState, ErrorNote, Panel, Spinner } from '../ui';
+import { EmptyState, ErrorNote, Eyebrow, HORIZON_HUE, Panel, Spinner } from '../ui';
+
+/** Mismo orden que el Piloto: scalper, daily, swing, holder. */
+const HORIZON_ORDER: UserHorizon[] = ['scalper', 'daily', 'swing', 'holder'];
 
 interface CoinMeta {
   id: string;
@@ -82,13 +86,11 @@ export function BacktestView() {
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {error && <ErrorNote message={error} />}
 
-      <Panel
-        title="Simulador por horizonte"
-        subtitle="Elige monedas y monto: el programa invierte lo mismo con las 4 reglas y compara"
-      >
+      <Eyebrow>Simulador · $10.000 por cliente</Eyebrow>
+      <Panel>
         <div className="flex flex-wrap gap-2">
           {coins.map((c) => (
             <button
@@ -122,27 +124,33 @@ export function BacktestView() {
       </Panel>
 
       {results.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
-          {results.map((r) => {
-            const won = r.pnl >= 0;
+        <div className="grid gap-4 sm:grid-cols-2">
+          {[...results]
+            .sort((a, b) => HORIZON_ORDER.indexOf(a.horizon as UserHorizon) - HORIZON_ORDER.indexOf(b.horizon as UserHorizon))
+            .map((r) => {
+            const hue = HORIZON_HUE[r.horizon as UserHorizon] ?? 'var(--color-brand)';
             return (
-              <Panel
-                key={r.horizon}
-                title={r.label}
-                subtitle={`${spanLabel(r)}${
-                  r.from && r.to
-                    ? ` (${r.from.slice(0, 10)} → ${r.to.slice(0, 10)})`
-                    : ''
-                } · ${r.moves === 0 ? 'sin operar tras asignar' : `${r.moves} movimiento(s)`}`}
-                action={<Chip tone={won ? 'up' : 'down'}>{pct(r.pnlPct)}</Chip>}
-              >
-                <p className="flex items-center gap-2">
-                  <FlaskConical size={14} className="text-brand" />
-                  <span className="text-[13px] font-semibold">{plainSentence(r)}</span>
-                  <span className="ml-auto font-mono text-[13px]">{money(r.valueNow, 'MXN')}</span>
+              <div key={r.horizon} className="relative overflow-hidden rounded-xl bg-surface p-5">
+                <span className="pointer-events-none absolute inset-x-0 top-0 h-[2px]" style={{ background: hue }} />
+                <div className="flex items-baseline gap-3">
+                  <p className="font-display text-[17px] font-semibold tracking-tight" style={{ color: hue }}>
+                    {r.label}
+                  </p>
+                  <p className="display-num ml-auto text-[22px] leading-none">
+                    {money(r.pnl, 'MXN')}
+                  </p>
+                </div>
+                <p className="mt-0.5 font-mono text-[11px] tabular-nums text-muted">
+                  {money(r.valueNow, 'MXN')} · {pct(r.pnlPct)} · {spanLabel(r)}
+                  {r.from && r.to ? ` (${r.from.slice(0, 10)} → ${r.to.slice(0, 10)})` : ''}
+                  {' '}· {r.moves === 0 ? 'sin operar tras asignar' : `${r.moves} movimiento(s)`}
+                </p>
+                <p className="mt-1.5 flex items-center gap-2 text-[13px] font-semibold">
+                  <FlaskConical size={14} className="shrink-0 text-brand" />
+                  {plainSentence(r)}
                 </p>
                 <p className="mt-1 text-[12px] text-muted">{r.explanation}</p>
-              </Panel>
+              </div>
             );
           })}
         </div>

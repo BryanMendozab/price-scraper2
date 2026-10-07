@@ -21,10 +21,10 @@ export const TRADERS: TraderMeta[] = [
     horizon: 'scalper',
     label: 'Scalper',
     tagline: 'Opera en minutos y horas, cazando movimientos chicos.',
-    sensitivity: 'Reacciona desde 1%',
-    example: 'Si BTC se mueve 1.5% en el día, ya te avisa.',
+    sensitivity: 'Reacciona desde 0,05%',
+    example: 'Si BTC se mueve 0.15% entre corridas, ya te avisa.',
     budgetMxn: PILOT_BUDGET_MXN,
-    thesis: 'Caza bajones del día: compra caídas de 3% y vende en +6% o corta en −2%.',
+    thesis: 'Caza micro-bajones en vivo: compra caídas de 0,15% y vende al rebotar o corta en −0,3%.',
   },
   {
     horizon: 'daily',

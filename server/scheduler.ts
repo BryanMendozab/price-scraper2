@@ -1,6 +1,6 @@
 import type { CrawlerState, RunTrigger } from '../shared/types.ts';
 import { runCycle, type CycleResult } from './agent/index.ts';
-import { getDb, logMoverAlerts } from './store.ts';
+import { getDb, logMoverAlerts, markTradesEmailed } from './store.ts';
 import { buildRecommendations } from './profiles/recommend.ts';
 import { actionable, buildPilotDigestEmail, emailReady, sendMail, sendProfileAlert } from './notify/email.ts';
 import { runAutopilot } from './sim/autopilot.ts';
@@ -99,6 +99,10 @@ async function maybeNotifyPilot(): Promise<void> {
   const batch = mailable.slice(-20);
   try {
     await sendMail(to, buildPilotDigestEmail(batch));
+    markTradesEmailed(
+      batch.map((t) => t.id),
+      new Date().toISOString(),
+    );
     lastPilotTradeId = trades.at(-1)?.id ?? lastPilotTradeId;
     lastPilotEmailAt = Date.now();
     console.log(`[notify] digest del piloto enviado a ${to} (${batch.length} operaciones).`);

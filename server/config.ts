@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import path from 'node:path';
 
 const process = (globalThis as typeof globalThis & {
   process: { env: Record<string, string | undefined> };
@@ -13,6 +14,10 @@ function num(name: string, fallback: number): number {
 export const config = {
   port: num('PORT', 8787),
   crawlIntervalSeconds: num('CRAWL_INTERVAL_SECONDS', 30),
+  /** Carpeta donde viven db.json e history.json. En Render apunta al disco persistente. */
+  dataDir: process.env.DATA_DIR?.trim()
+    ? path.resolve(process.env.DATA_DIR.trim())
+    : path.resolve(process.cwd(), 'data'),
   userAgent:
     process.env.CRAWL_USER_AGENT?.trim() ||
     'AgenteEscolarDemo/1.0 (proyecto escolar de monitoreo de precios)',
