@@ -4,8 +4,9 @@ import { TRADERS } from '../../shared/traders.ts';
 import { LENSES } from './autopilot.ts';
 import { historySeries, preloadHistory } from './history.ts';
 import { getDb } from '../store.ts';
+import { config } from '../config.ts';
 import { money } from '../format.ts';
-import { round2 } from '../utils.ts';
+import { errorMessage, fetchJson, round2, sleep } from '../utils.ts';
 
 export const BACKTEST_DISCLAIMER =
   '';
@@ -72,6 +73,42 @@ const WINDOW_ES: Record<UserHorizon, string> = {
   swing: '30 días',
   holder: '180 días',
 };
+
+/**
+ * BUG scalper/daily: la serie cacheada de 365d viene en granularidad diaria
+ * (1 punto/día). Al recortar a 1d quedan 1-2 puntos y el horizonte responde
+ * "Sin datos suficientes". Fix: serie horaria (days=7 -> 1 punto/hora) solo
+ * para ventanas cortas, con caché de 5 min y fallback a la serie larga.
+ */
+interface ChartResponse {
+  prices?: Array<[number, number]>;
+}
+
+const SHORT_DAYS = 7;
+const SHORT_TTL_MS = 5 * 60_000;
+const shortCache = new Map<string, { at: number; points: Array<[number, number]> }>();
+
+async function hourlySeries(coinId: string): Promise<Array<[number, number]> | null> {
+  const cached = shortCache.get(coinId);
+  if (cached && Date.now() - cached.at < SHORT_TTL_MS) return cached.points;
+  const url =
+    `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart` +
+    `?vs_currency=mxn&days=${SHORT_DAYS}`;
+  try {
+    const data = await fetchJson<ChartResponse>(url, config.requestTimeoutMs, config.userAgent);
+    if (!Array.isArray(data?.prices) || data.prices.length < 6) return null;
+    shortCache.set(coinId, { at: Date.now(), points: data.prices });
+    return data.prices;
+  } catch (err) {
+    console.warn(`[backtest] serie horaria ${coinId} no disponible (${errorMessage(err)}), uso serie diaria.`);
+    return null;
+  }
+}
+
+/** Ventanas cortas usan granularidad horaria; largas usan el histórico diario. */
+function usesHourly(horizon: UserHorizon): boolean {
+  return horizon === 'scalper' || horizon === 'daily';
+}
 
 interface OpenPosition {
   entry: number;
@@ -260,10 +297,20 @@ export async function backtest(input: {
   for (const coinId of coinIds) {
     const full = historySeries(coinId);
     const windowed = (full ?? []).filter(([ts]) => ts >= cutoff);
-    if (windowed.length < 48) {
-      throw new Error('Histórico insuficiente (se está descargando). Espera unos minutos e intenta de nuevo.');
-    }
-    seriesByCoin.set(coinId, windowed);
+    if (windowed.length >= 48) seriesByCoin.set(coinId, windowed);
+  }
+
+  // Serie horaria best-effort para scalper (1d) y daily (7d). Secuencial con
+  // pausa para no provocar 429; si falla se usa la serie diaria como fallback.
+  const hourlyByCoin = new Map<string, Array<[number, number]>>();
+  for (const coinId of coinIds) {
+    const pts = await hourlySeries(coinId);
+    if (pts) hourlyByCoin.set(coinId, pts);
+    if (coinId !== coinIds[coinIds.length - 1]) await sleep(1000);
+  }
+
+  if (seriesByCoin.size === 0 && hourlyByCoin.size === 0) {
+    throw new Error('Histórico insuficiente (se está descargando). Espera unos minutos e intenta de nuevo.');
   }
 
   const amountPerCoin = round2(amount / coinIds.length);
@@ -272,8 +319,19 @@ export async function backtest(input: {
     const cutoff = now - WINDOW_DAYS_BY_HORIZON[t.horizon] * 86_400_000;
     const sliced = new Map<string, Array<[number, number]>>();
     for (const coinId of coinIds) {
-      const points = (seriesByCoin.get(coinId) ?? []).filter(([ts]) => ts >= cutoff);
-      if (points.length >= 6) sliced.set(coinId, points);
+      // Ventana corta: horaria primero, diaria como respaldo.
+      // Ventana larga: diaria (el days=7 no cubre 30d/180d).
+      const candidates = usesHourly(t.horizon)
+        ? [hourlyByCoin.get(coinId), seriesByCoin.get(coinId)]
+        : [seriesByCoin.get(coinId)];
+      for (const source of candidates) {
+        if (!source) continue;
+        const points = source.filter(([ts]) => ts >= cutoff);
+        if (points.length >= 6) {
+          sliced.set(coinId, points);
+          break;
+        }
+      }
     }
     if (sliced.size === 0) {
       return {
